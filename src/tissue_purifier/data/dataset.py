@@ -250,6 +250,8 @@ class CropperSparseTensor(CropperTensor):
         x_pixel: torch.Tensor
         y_pixel: torch.Tensor
         codes, x_pixel, y_pixel = sparse_tensor.indices()  # each has shape (n_element)
+        print(codes.shape)
+        print(x_pixel.shape)
         values = sparse_tensor.values()
         ch, w_img, h_img = sparse_tensor.size()
 
@@ -296,6 +298,7 @@ class CropperSparseTensor(CropperTensor):
         self._assert_params(crop_size, stride, n_crops, random_order, strategy, criterium_fn)
         assert sparse_tensor.is_sparse
 
+        #print(sparse_tensor.device)
         # this might break the code if num_worked>0 in dataloader
         # if torch.cuda.is_available():
         #    sparse_tensor = sparse_tensor.cuda()
@@ -366,10 +369,13 @@ class CropperSparseTensor(CropperTensor):
         crops = []
         for n in range(n_max):
             mask_n = mask[n]
+            #print(codes.shape)
             codes_n = codes[mask_n]
+            #print(codes_n.shape)
             x_pixel_n = x_pixel[mask_n] - ix[n]
             y_pixel_n = y_pixel[mask_n] - iy[n]
             values_n = values[mask_n]
+            #print(values_n.shape)
 
             crops.append(
                 torch.sparse_coo_tensor(

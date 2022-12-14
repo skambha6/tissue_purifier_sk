@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import List, Optional, Tuple, Union, TYPE_CHECKING
 import numpy
+import pandas
 import copy
 import torch
 from tissue_purifier.models.patch_analyzer import SpatialAutocorrelation
@@ -29,7 +30,7 @@ class SparseImage:
         spot_properties_dict: dict,
         x_key: str,
         y_key: str,
-        category_key: str,
+        category_keys: array,
         categories_to_codes: dict,
         pixel_size: float,
         padding: int = 10,
@@ -43,7 +44,7 @@ class SparseImage:
             spot_properties_dict: the dictionary with the spot properties (at the minimum x,y,category)
             x_key: str, the key where the x_coordinates are stored in the spot_properties_dict
             y_key: str, the key where the y_coordinates are stored in the spot_properties_dict
-            category_key: str, the key where the category are stored in the spot_properties_dict
+            category_keys: vec, the keys where the categories are stored in the spot_properties_dict
             categories_to_codes: dictionary with the mapping from categories (keys) to codes (values).
                 The codes must be integers starting from zero. For example {"macrophage" : 0, "t-cell": 1}.
             pixel_size: float, size of the pixel. It used in the conversion
@@ -60,7 +61,8 @@ class SparseImage:
         self._pixel_size = pixel_size
         self._x_key = x_key
         self._y_key = y_key
-        self._cat_key = category_key
+        ## change this to a vector
+        self._cat_keys = category_keys
         self._categories_to_codes = categories_to_codes
         self._spot_properties_dict = spot_properties_dict
         self._patch_properties_dict = {} if patch_properties_dict is None else patch_properties_dict
@@ -70,47 +72,51 @@ class SparseImage:
         # These variables are built
         self.origin = None
         self.data = self._create_torch_sparse_image(padding=self._padding, pixel_size=self._pixel_size)
-
         print("The dense shape of the image is ->", self.data.size())
-        print("Occupacy (zero, single, double, ...) of voxels in 3D sparse array ->",
-              torch.bincount(self.data.values()).cpu().numpy())
-        tmp_sp = torch.sparse.sum(self.data, dim=-3)  # sum over categories
-        print("Occupacy (zero, single, double, ...) of voxels  in 2D sparse array (summed over category) ->",
-              torch.bincount(tmp_sp.values()).cpu().numpy())
+        # print("Occupacy (zero, single, double, ...) of voxels in 3D sparse array ->",
+        #       torch.bincount(self.data.values()).cpu().numpy())
+        # tmp_sp = torch.sparse.sum(self.data, dim=-3)  # sum over categories
+        # print("Occupacy (zero, single, double, ...) of voxels  in 2D sparse array (summed over category) ->",
+        #       torch.bincount(tmp_sp.values()).cpu().numpy())
 
+    #### CLEAN UP AND VET CODE ####
     def _create_torch_sparse_image(self, padding: int, pixel_size: float) -> torch.sparse.Tensor:
 
         # Check all vectors are 1D and of the same length
         x_raw = torch.from_numpy(self.x_raw).float()
         y_raw = torch.from_numpy(self.y_raw).float()
         cat_raw = self.cat_raw
-        assert x_raw.shape == y_raw.shape == cat_raw.shape and len(x_raw.shape) == 1, \
+
+        assert x_raw.shape[0] == y_raw.shape[0] == cat_raw.shape[0] and len(x_raw.shape) == 1, \
             "Error. x_raw, y_raw, cat_raw must be 1D array of the same length"
 
-        # Check all category are included in categories_to_code
-        assert set(cat_raw).issubset(set(self._categories_to_codes.keys())), \
+
+        # Check all category keys are included in categories_to_code
+        assert set(cat_raw.columns).issubset(set(self._categories_to_codes.keys())), \
             "Error. Some categories are NOT present in the categories_to_codes dictionary"
 
-        codes = torch.tensor([self._categories_to_codes[cat] for cat in cat_raw]).long()
-
+        codes = torch.tensor([cat_raw[cat] for cat in cat_raw]).long()
+        codes_vals = torch.tensor(cat_raw.to_numpy())
+        
         # Use GPU if available
         if torch.cuda.is_available():
             x_raw = x_raw.cuda().float()
             y_raw = y_raw.cuda().float()
             codes = codes.cuda().long()
 
-        assert x_raw.shape == y_raw.shape == codes.shape
-        assert len(codes.shape) == 1
-        print("number of elements --->", codes.shape[0])
-        mean_spacing, median_spacing = self._check_mean_median_spacing(x_raw, y_raw)
-        print("mean and median spacing {0}, {1}".format(mean_spacing, median_spacing))
+        # assert x_raw.shape == y_raw.shape == codes.shape
+        # assert len(codes.shape) == 1
+        # print("number of elements --->", codes.shape[0])
+        # mean_spacing, median_spacing = self._check_mean_median_spacing(x_raw, y_raw)
+        # print("mean and median spacing {0}, {1}".format(mean_spacing, median_spacing))
 
         # Check that all codes are used at least once
         n_codes = numpy.max(list(self._categories_to_codes.values()))
-        code_usage = torch.bincount(codes, minlength=n_codes+1)
-        if not torch.prod(code_usage > 0):
-            print("WARNING: some codes are not used! \
-            This might be OK if some codes correspond to very rare genes or cell_types")
+
+        # code_usage = torch.bincount(codes, minlength=n_codes+1)
+        # if not torch.prod(code_usage > 0):
+        #     print("WARNING: some codes are not used! \
+        #     This might be OK if some codes correspond to very rare genes or cell_types")
 
         # Define the raw coordinates of the origin
         x_raw_min = torch.min(x_raw).item()
@@ -129,13 +135,45 @@ class SparseImage:
             torch.max(ix).item() + 1 + 2 * padding,
             torch.max(iy).item() + 1 + 2 * padding,
         )
+        
+        # codes_list = []
+        # for i in range(n_codes+1):
+        #     codes_list.append(torch.unsqueeze(i*torch.ones(ix.shape),0))
+        # codes = torch.cat(codes_list, dim=1)
+        
+        codes = torch.arange(start=0,end=9).repeat(ix.shape[0])
+
+        codes_1d = torch.flatten(codes)
+
+            
+        ## remove this later
+        codes_vals = torch.flatten(torch.nan_to_num(codes_vals))
+        
+        #test = torch.stack((codes_1d.cuda(), torch.repeat_interleave(ix, n_codes+1), torch.repeat_interleave(iy, n_codes+1)))
+              
+        ## stores 0 values as well in the sparse tensor I think which is not ideal - double check if there's way to automatically remove these
+        
+        ## assert statement that these all have the same shape 
+        
+        keep_ind = torch.nonzero(codes_vals).squeeze()
+
+        codes_vals = codes_vals[keep_ind]
+        codes_1d = codes_1d[keep_ind]
+        
+        ix_rep = torch.repeat_interleave(ix, n_codes+1)
+        ix_rep = ix_rep[keep_ind]
+        
+        iy_rep = torch.repeat_interleave(iy, n_codes+1)
+        iy_rep = iy_rep[keep_ind]
+        
         return torch.sparse_coo_tensor(
-            indices=torch.stack((codes, ix, iy), dim=0),
-            values=torch.ones_like(codes).int(),
+            indices=torch.stack((codes_1d.cuda(), ix_rep, iy_rep), dim=0),
+            values=codes_vals,
             size=dense_shape,
             device=codes.device,
             requires_grad=False,
         ).coalesce()
+    
 
     def read_from_spot_dictionary(self, key: str) -> torch.Tensor:
         """
@@ -372,9 +410,10 @@ class SparseImage:
         return numpy.asarray(self._spot_properties_dict[self._y_key])
 
     @property
-    def cat_raw(self) -> numpy.ndarray:
+    def cat_raw(self) -> pandas.DataFrame:
         """ The categorical labels (gene-identities or cell-identities) from the original data """
-        return numpy.asarray(self._spot_properties_dict[self._cat_key])
+        spot_properties_df = pandas.DataFrame(self._spot_properties_dict)
+        return spot_properties_df[self._cat_keys]
 
     @property
     def n_spots(self) -> int:
@@ -746,7 +785,7 @@ class SparseImage:
             if return_crops:
                 all_patches.append(patches.detach().cpu())
 
-            features_tmp = model(patches)
+            features_tmp = model(patches.cuda()) ##send patches to gpu
             if isinstance(features_tmp, torch.Tensor):
                 all_features.append(features_tmp)
             elif isinstance(features_tmp, numpy.ndarray):
@@ -1009,7 +1048,7 @@ class SparseImage:
             'pixel_size': self._pixel_size,
             'x_key': self._x_key,
             'y_key': self._y_key,
-            'category_key': self._cat_key,
+            'category_key': self._cat_keys,
             'categories_to_codes': self._categories_to_codes,
             'spot_properties_dict': self._spot_properties_dict,
             'patch_properties_dict': self._patch_properties_dict,
@@ -1041,7 +1080,7 @@ class SparseImage:
             anndata: AnnData,
             x_key: str,
             y_key: str,
-            category_key: str,
+            category_keys: array,
             pixel_size: float = None,
             categories_to_channels: dict = None,
             padding: int = 10,
@@ -1057,7 +1096,7 @@ class SparseImage:
             anndata: the AnnData object with the spatial data
             x_key: str, tha key associated with the x_coordinate in the AnnData object
             y_key: str, tha key associated with the y_coordinate in the AnnData object
-            category_key: str, tha key associated with the categorical values (cell_types or gene_identities)
+            category_keys: vec of str, the keys associated with the probability values (cell_types or gene_identities)
             pixel_size: float, pixel_size used to convert from raw coordinates to pixel coordinates.
                 If it is not specified it will be chosen to be 1/3 of the median of the Nearest Neighbour distances
                 between spots. Explicitely setting this attribute ensures that the pixel_size will be consistent
@@ -1080,7 +1119,7 @@ class SparseImage:
             >>>     anndata=anndata,
             >>>     x_key="spatial",
             >>>     y_key="spatial",
-            >>>     category_key="cell_type",
+            >>>     category_keys="cell_type",
             >>>     categories_to_channels=categories_to_channels)
 
          Examples:
@@ -1090,7 +1129,7 @@ class SparseImage:
             >>>     anndata=anndata,
             >>>     x_key="gene_location_x",
             >>>     y_key="gene_location_y",
-            >>>     category_key="gene",
+            >>>     category_keys="gene",
             >>>     pixel_size=6.5,
             >>>     padding=8)
         """
@@ -1114,25 +1153,30 @@ class SparseImage:
                 print(e)
                 y_raw = numpy.asarray(anndata.obsm[y_key])
 
-        cat_raw = numpy.asarray(anndata.obs[category_key])
+        cat_raw = anndata.obs[category_keys]
+
         assert isinstance(x_raw, numpy.ndarray)
         assert isinstance(y_raw, numpy.ndarray)
-        assert isinstance(cat_raw, numpy.ndarray)
-        assert x_raw.shape == y_raw.shape == cat_raw.shape and len(x_raw.shape) == 1
+        assert isinstance(cat_raw, pandas.DataFrame)
+        assert x_raw.shape[0] == y_raw.shape[0] == cat_raw.shape[0] and len(x_raw.shape) == 1
+        
 
         spot_dictionary = {
             "x_key": x_raw,
-            "y_key": y_raw,
-            "cat_key": cat_raw}
+            "y_key": y_raw}
+        
+        
+        for key in category_keys:
+            spot_dictionary[key] = cat_raw[key]
 
         for k in anndata.obs.keys():
-            if k not in {x_key, y_key, category_key}:
+            if k not in {x_key, y_key} and k not in category_keys:
                 spot_dictionary[k] = anndata.obs[k]
         for k in anndata.obsm.keys():
-            if k not in {x_key, y_key, category_key}:
+            if k not in {x_key, y_key} and k not in category_keys:
                 spot_dictionary[k] = anndata.obsm[k]
         # I have transferred all the observation I coukld on the spot_dict
-
+        
         # check if anndata.uns["sparse_image_state_dict"] is present
         try:
             state_dict = anndata.uns.pop("sparse_image_state_dict")
@@ -1141,7 +1185,7 @@ class SparseImage:
                 spot_properties_dict=spot_dictionary,
                 x_key="x_key",
                 y_key="y_key",
-                category_key="cat_key",
+                category_keys=category_keys,
                 categories_to_codes=state_dict["categories_to_codes"],
                 pixel_size=state_dict["pixel_size"],
                 padding=state_dict["padding"],
@@ -1153,10 +1197,10 @@ class SparseImage:
         except KeyError:
 
             if categories_to_channels is None:
-                category_values = list(numpy.unique(cat_raw))
+                category_values = list(numpy.unique(cat_raw.columns))
                 categories_to_channels = dict(zip(category_values, range(len(category_values))))
 
-            assert set(numpy.unique(cat_raw)).issubset(set(categories_to_channels.keys())), \
+            assert set(cat_raw.columns).issubset(set(categories_to_channels.keys())), \
                 " Error. The adata object contains values which are not present in category_values."
 
             # Get the pixel_size
@@ -1168,7 +1212,7 @@ class SparseImage:
                 spot_properties_dict=spot_dictionary,
                 x_key="x_key",
                 y_key="y_key",
-                category_key="cat_key",
+                category_keys=category_keys,
                 categories_to_codes=categories_to_channels,
                 pixel_size=pixel_size,
                 padding=padding,
@@ -1179,6 +1223,7 @@ class SparseImage:
 
         return sparse_img_obj
 
+    ###### DOUBLE CHECK THIS METHOD WITH CHANGE TO PROBABILISTIC CELL TYPE ASSIGNMENTS ######
     def to_anndata(self, export_full_state: bool = False, verbose: bool = False):
         """
         Export the spot_properties (and optionally the entire state dict) to the anndata object.
@@ -1195,13 +1240,13 @@ class SparseImage:
 
         Examples:
             >>> adata = sparse_image.to_anndata()
-            >>> sparse_image_new = SparseImage.from_anndata(adata, x_key="x", y_key="y", category_key="cell_type")
+            >>> sparse_image_new = SparseImage.from_anndata(adata, x_key="x", y_key="y", category_keys="cell_type")
         """
         if self.anndata is None:
             minimal_spot_dict = {
                 self._x_key: self.x_raw,
                 self._y_key: self.y_raw,
-                self._cat_key: self.cat_raw,
+                self._cat_keys: self.cat_raw,
             }
             adata = AnnData(obs=minimal_spot_dict)
         else:
@@ -1211,7 +1256,7 @@ class SparseImage:
         set_obs_keys = set(adata.obs_keys())
         set_obsm_keys = set(adata.obsm_keys())
         for k, v in self._spot_properties_dict.items():
-            if k not in {self._x_key, self._y_key, self._cat_key} and \
+            if k not in {self._x_key, self._y_key} and k not in self._cat_keys and\
                     k not in set_obs_keys and \
                     k not in set_obsm_keys:
 

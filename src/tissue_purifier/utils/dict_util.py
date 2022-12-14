@@ -294,6 +294,12 @@ def concatenate_list_of_dict(list_of_dict) -> dict:
                     total_dict[k] = torch.cat((total_dict[k], v), dim=0)
                 else:
                     total_dict[k] = v
+                    
+            elif isinstance(v, numpy.ndarray):
+                if k in total_dict.keys():
+                    total_dict[k] = numpy.concatenate((total_dict[k], v), axis=0)
+                else:
+                    total_dict[k] = v
 
             elif isinstance(v, int) or isinstance(v, float):
                 if k in total_dict.keys():

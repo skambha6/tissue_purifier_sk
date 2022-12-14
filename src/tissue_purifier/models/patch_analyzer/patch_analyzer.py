@@ -82,6 +82,7 @@ class SpatialAutocorrelation:
         if torch.cuda.is_available():
             sparse_tensor = sparse_tensor.cuda()
 
+        print(sparse_tensor.indices())
         category_tmp, x_pixel, y_pixel = sparse_tensor.indices()
         values = sparse_tensor.values()
 

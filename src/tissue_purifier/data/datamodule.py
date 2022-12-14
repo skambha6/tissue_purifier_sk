@@ -407,6 +407,7 @@ class SparseSslDM(SslDM):
                 DropChannel(p=self._drop_channel_prob, relative_frequency=self._drop_channel_relative_freq),
             ])
         )
+    
 
     def train_dataloader(self) -> DataLoaderWithLoad:
         try:
@@ -493,7 +494,7 @@ class AnndataFolderDM(SparseSslDM):
                  pixel_size: float,
                  x_key: str,
                  y_key: str,
-                 category_key: str,
+                 category_keys: array,
                  categories_to_channels: Dict[Any, int],
                  metadata_to_classify: Callable,
                  metadata_to_regress: Callable,
@@ -507,7 +508,7 @@ class AnndataFolderDM(SparseSslDM):
             pixel_size: size of the pixel (used to convert raw_coordinates to pixel_coordinates)
             x_key: key associated with the x_coordinate in the AnnData object
             y_key: key associated with the y_coordinate in the AnnData object
-            category_key: key associated with the the categorical values (cell_types or gene_identities)
+            category_keys: keys associated with the assignment probabilities (cell_types or gene_identities; can be one-hot encoded for categorical assignments)
                 in the AnnData object
             categories_to_channels: dictionary with the mapping from categorical values to channels in the image.
                 The values must be non-negative integers
@@ -532,7 +533,7 @@ class AnndataFolderDM(SparseSslDM):
         self._pixel_size = pixel_size
         self._x_key = x_key
         self._y_key = y_key
-        self._category_key = category_key
+        self._category_keys = category_keys
         self._categories_to_channels = categories_to_channels
         self._metadata_to_regress = metadata_to_regress
         self._metadata_to_classify = metadata_to_classify
@@ -575,8 +576,8 @@ class AnndataFolderDM(SparseSslDM):
                             help="key associated with the x_coordinate in the AnnData object")
         parser.add_argument("--y_key", type=str, default="y",
                             help="key associated with the y_coordinate in the AnnData object")
-        parser.add_argument("--category_key", type=str, default="cell_type",
-                            help="key associated with the the categorical values (cell_types or gene_identities) \
+        parser.add_argument("--category_keys", type=str, default=['ES','Endothelial','Leydig','Macrophage','Myoid','RS','SPC','SPG','Sertoli'], ### fix this for custom keys, from yaml
+                            help="keys associated with the the probability values (cell_types or gene_identities; can be one-hot encoded) \
                             in the AnnData object")
         parser.add_argument("--categories_to_channels", nargs='*', action=ParseDict,
                             help="dictionary in the form 'foo'=1 'bar'=2 to define \
@@ -605,7 +606,7 @@ class AnndataFolderDM(SparseSslDM):
             anndata=anndata,
             x_key=self._x_key,
             y_key=self._y_key,
-            category_key=self._category_key,
+            category_keys=self._category_keys,
             pixel_size=self._pixel_size,
             categories_to_channels=self._categories_to_channels,
             padding=10)
@@ -648,9 +649,13 @@ class AnndataFolderDM(SparseSslDM):
             sps_tmp, loc_x_tmp, loc_y_tmp = self.cropper_test(sp_img, n_crops=self._n_crops_for_tissue_test)
             labels = [label] * len(sps_tmp)
 
-            morans = [self.compute_moran(sparse_tensor).max().item() for sparse_tensor in sps_tmp]
-            metadatas = [MetadataCropperDataset(f_name=fname, loc_x=loc_x, loc_y=loc_y, moran=moran) for
-                         loc_x, loc_y, moran in zip(loc_x_tmp, loc_y_tmp, morans)]
+            ###  FIX PATCH ANALYZER CODE for PROBABILISTIC CELL_TYPE_MAPPING
+            # morans = [self.compute_moran(sparse_tensor).max().item() for sparse_tensor in sps_tmp]
+            # metadatas = [MetadataCropperDataset(f_name=fname, loc_x=loc_x, loc_y=loc_y, moran=moran) for
+            #              loc_x, loc_y, moran in zip(loc_x_tmp, loc_y_tmp, morans)] 
+            
+            metadatas = [MetadataCropperDataset(f_name=fname, loc_x=loc_x, loc_y=loc_y, moran=-99) for
+                         loc_x, loc_y in zip(loc_x_tmp, loc_y_tmp)] ### dummy metadatas
 
             test_imgs += [sp_img.cpu() for sp_img in sps_tmp]
             test_labels += labels
