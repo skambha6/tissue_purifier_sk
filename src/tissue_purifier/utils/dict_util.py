@@ -206,7 +206,7 @@ def subset_dict_non_overlapping_patches(
         "key_patch_xywh = {0} in not present in the input_dictionary.".format(key_patch_xywh)
 
     nms_mask_n, overlap_nn = NonMaxSuppression.compute_nm_mask(
-        score=torch.rand_like(input_dict[key_patch_xywh][:, 0].float()),
+        score=torch.rand_like(torch.Tensor(input_dict[key_patch_xywh][:, 0]).float()),
         ids=input_dict[key_tissue],
         patches_xywh=input_dict[key_patch_xywh],
         iom_threshold=iom_threshold)

@@ -579,6 +579,8 @@ class AnndataFolderDM(SparseSslDM):
         parser.add_argument("--category_keys", type=str, default=['ES','Endothelial','Leydig','Macrophage','Myoid','RS','SPC','SPG','Sertoli'], ### fix this for custom keys, from yaml
                             help="keys associated with the the probability values (cell_types or gene_identities; can be one-hot encoded) \
                             in the AnnData object")
+        parser.add_argument("--weights_key", type=str, default="cell_type_proportions",
+                    help="obsm key for weights in each channel")
         parser.add_argument("--categories_to_channels", nargs='*', action=ParseDict,
                             help="dictionary in the form 'foo'=1 'bar'=2 to define \
                             how the categorical values are mapped to the different channels in the image")

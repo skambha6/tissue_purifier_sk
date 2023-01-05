@@ -674,10 +674,24 @@ class SparseImage:
         assert r is None or r > 0, "r is either None or a positive value"
 
         # preparation
-        cell_type_codes = torch.tensor([self._categories_to_codes[cat] for cat in self.cat_raw]).long()
+        ## clean up
+        #cell_type_codes = torch.tensor([self._categories_to_codes[cat] for cat in self.cat_raw]).long()
+        print(k)
+        
         metric_features = numpy.stack((self.x_raw, self.y_raw), axis=-1)
         chs = self.shape[-3]
-        cell_types_one_hot = torch.nn.functional.one_hot(cell_type_codes, num_classes=chs).cpu()  # shape (*, ch)
+        
+        #cat_raw = self.cat_raw
+        #codes = torch.tensor([self.cat_raw[cat] for cat in self.cat_raw]).long()
+        codes_vals = torch.tensor(self.cat_raw.to_numpy())
+
+        cell_types_one_hot = numpy.zeros_like(codes_vals)
+        max_assignment = numpy.argmax(codes_vals, axis = 1)
+ 
+        cell_types_one_hot[numpy.arange(codes_vals.shape[0]), max_assignment] = 1
+        cell_types_one_hot = torch.Tensor(cell_types_one_hot)
+
+        #cell_types_one_hot = torch.nn.functional.one_hot(cell_type_codes, num_classes=chs).cpu()  # shape (*, ch)
 
         if k is not None:
             # use a knn neighbours
