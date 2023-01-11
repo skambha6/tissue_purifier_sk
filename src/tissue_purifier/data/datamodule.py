@@ -11,7 +11,8 @@ import torchvision
 from os import cpu_count
 from scanpy import AnnData
 
-from tissue_purifier.models.patch_analyzer import SpatialAutocorrelation
+from tissue_purifier.models.patch_analyzer import SpatialAutocorrelation, Composition
+
 from .sparse_image import SparseImage
 from .transforms import (
     DropoutSparseTensor,
@@ -576,7 +577,7 @@ class AnndataFolderDM(SparseSslDM):
                             help="key associated with the x_coordinate in the AnnData object")
         parser.add_argument("--y_key", type=str, default="y",
                             help="key associated with the y_coordinate in the AnnData object")
-        parser.add_argument("--category_keys", type=str, default=['ES','Endothelial','Leydig','Macrophage','Myoid','RS','SPC','SPG','Sertoli'], ### fix this for custom keys, from yaml
+        parser.add_argument("--category_keys", nargs='*',
                             help="keys associated with the the probability values (cell_types or gene_identities; can be one-hot encoded) \
                             in the AnnData object")
         parser.add_argument("--weights_key", type=str, default="cell_type_proportions",
@@ -651,10 +652,13 @@ class AnndataFolderDM(SparseSslDM):
             sps_tmp, loc_x_tmp, loc_y_tmp = self.cropper_test(sp_img, n_crops=self._n_crops_for_tissue_test)
             labels = [label] * len(sps_tmp)
 
+            ### add majority cell type label 
+            
             ###  FIX PATCH ANALYZER CODE for PROBABILISTIC CELL_TYPE_MAPPING
-            # morans = [self.compute_moran(sparse_tensor).max().item() for sparse_tensor in sps_tmp]
-            # metadatas = [MetadataCropperDataset(f_name=fname, loc_x=loc_x, loc_y=loc_y, moran=moran) for
-            #              loc_x, loc_y, moran in zip(loc_x_tmp, loc_y_tmp, morans)] 
+            #morans = [self.compute_moran(sparse_tensor).max().item() for sparse_tensor in sps_tmp]
+            #list_composition = Composition(return_fraction=True)(sps_tmp)
+            #metadatas = [MetadataCropperDataset(f_name=fname, loc_x=loc_x, loc_y=loc_y, moran=moran) for
+            #          loc_x, loc_y, moran in zip(loc_x_tmp, loc_y_tmp, morans)] 
             
             metadatas = [MetadataCropperDataset(f_name=fname, loc_x=loc_x, loc_y=loc_y, moran=-99) for
                          loc_x, loc_y in zip(loc_x_tmp, loc_y_tmp)] ### dummy metadatas

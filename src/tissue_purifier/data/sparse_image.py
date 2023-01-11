@@ -141,7 +141,7 @@ class SparseImage:
         #     codes_list.append(torch.unsqueeze(i*torch.ones(ix.shape),0))
         # codes = torch.cat(codes_list, dim=1)
         
-        codes = torch.arange(start=0,end=9).repeat(ix.shape[0])
+        codes = torch.arange(start=0,end=n_codes+1).repeat(ix.shape[0])
 
         codes_1d = torch.flatten(codes)
 
@@ -157,6 +157,7 @@ class SparseImage:
         
         keep_ind = torch.nonzero(codes_vals).squeeze()
 
+        
         codes_vals = codes_vals[keep_ind]
         codes_1d = codes_1d[keep_ind]
         
@@ -1166,7 +1167,7 @@ class SparseImage:
             except Exception as e:
                 print(e)
                 y_raw = numpy.asarray(anndata.obsm[y_key])
-
+        
         cat_raw = anndata.obs[category_keys]
 
         assert isinstance(x_raw, numpy.ndarray)
