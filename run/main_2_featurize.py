@@ -4,6 +4,7 @@
 
 import argparse
 import torch
+import os
 import sys
 from typing import List
 from anndata import read_h5ad
@@ -48,11 +49,13 @@ def parse_args(argv: List[str]) -> dict:
     parser = argparse.ArgumentParser(add_help=False, conflict_handler='resolve')
 
     parser.add_argument("--anndata_in", type=str, required=True,
-                        help="path to the anndata.h5ad to annotate")
+                        help="path to the directory containing anndata.h5ad files to annotate")
 
     parser.add_argument("--anndata_out", type=str, required=True,
-                        help="path to the anndata.h5ad which will be saved to disk. \
-                             If it is equal to anndata_in the file will be overwritten.")
+                        help="path to the directory where anndata.h5ad files which will be saved to disk. \
+                             If it is equal to anndata_in, a new file will be written in that directory.")
+    
+    ## add user defined suffix to file name
 
     # stuff related to ssl features
     parser.add_argument("--ckpt_in", type=str, required=True,
@@ -120,42 +123,56 @@ if __name__ == '__main__':
     else:
         raise Exception("ssl_model should be either barlow, dino, simclr, vae. Received {0}".format(ssl_model))
 
-    # load anndata and convert to sparse_img
-    anndata = read_h5ad(config_dict_["anndata_in"])
-    dm = AnndataFolderDM(**model._hparams)
-    sparse_img = dm.anndata_to_sparseimage(anndata=anndata)
-    if config_dict_["gpu_enabled"]:
-        sparse_img = sparse_img.cuda()
-        model = model.cuda()
-    else:
-        sparse_img = sparse_img.cpu()
-        model = model.cpu()
+    anndata_source_folder = config_dict_["anndata_in"]
+    fname_list = []
+    for f in os.listdir(anndata_source_folder):
+        if f.endswith('.h5ad'):
+            fname_list.append(f)
+    
+    for fname in fname_list:
+        
+        ## add some assert statement here
+        
+        
+        # load anndata and convert to sparse_img
+        anndata = read_h5ad(filename=os.path.join(anndata_source_folder, fname))
+        dm = AnndataFolderDM(**model._hparams)
+        sparse_img = dm.anndata_to_sparseimage(anndata=anndata)
+        if config_dict_["gpu_enabled"]:
+            sparse_img = sparse_img.cuda()
+            model = model.cuda()
+        else:
+            sparse_img = sparse_img.cpu()
+            model = model.cpu()
 
-    # compute simple ncv
-    if config_dict_["ncv_k"] is not None:
-        for k in config_dict_["ncv_k"]:
-            sparse_img.compute_ncv(feature_name="ncv_k{}".format(k), k=k)
-    if config_dict_["ncv_r"] is not None:
-        for r in config_dict_["ncv_r"]:
-            sparse_img.compute_ncv(feature_name="ncv_r{}".format(r), r=r)
+        # compute simple ncv
+        if config_dict_["ncv_k"] is not None:
+            for k in config_dict_["ncv_k"]:
+                sparse_img.compute_ncv(feature_name="ncv_k{}".format(k), k=k)
+        if config_dict_["ncv_r"] is not None:
+            for r in config_dict_["ncv_r"]:
+                sparse_img.compute_ncv(feature_name="ncv_r{}".format(r), r=r)
 
-    # compute the ssl features
-    sparse_img.compute_patch_features(
-        feature_name=config_dict_["feature_key"],
-        model=model,
-        datamodule=dm,
-        batch_size=64,
-        n_patches_max=config_dict_["n_patches"],
-        overwrite=True
-    )
-    sparse_img.transfer_patch_to_spot(keys_to_transfer=[config_dict_["feature_key"]],
-                                      overwrite=True,
-                                      verbose=False,
-                                      strategy_patch_to_image=config_dict_["strategy_patch_to_image"],
-                                      strategy_image_to_spot=config_dict_["strategy_image_to_spot"])
+        # compute the ssl features
+        sparse_img.compute_patch_features(
+            feature_name=config_dict_["feature_key"],
+            model=model,
+            datamodule=dm,
+            batch_size=64,
+            n_patches_max=config_dict_["n_patches"],
+            overwrite=True
+        )
+        sparse_img.transfer_patch_to_spot(keys_to_transfer=[config_dict_["feature_key"]],
+                                          overwrite=True,
+                                          verbose=False,
+                                          strategy_patch_to_image=config_dict_["strategy_patch_to_image"],
+                                          strategy_image_to_spot=config_dict_["strategy_image_to_spot"])
 
-    # remove the intermediate results in the patch_dict and image_dict and save the new anndata to file
-    sparse_img.clear(patch_dict=True, image_dict=True)
-    new_anndata = sparse_img.to_anndata()
-    new_anndata.write(filename=config_dict_["anndata_out"])
-    print("written annotated anndata to file", config_dict_["anndata_out"])
+        # remove the intermediate results in the patch_dict and image_dict and save the new anndata to file
+        sparse_img.clear_dicts(patch_dict=True, image_dict=True)
+        new_anndata = sparse_img.to_anndata()
+        
+        out_file_name = fname[:-5] + "_featurized.h5ad"
+        out_file=os.path.join(config_dict_["anndata_out"], out_file_name)
+        new_anndata.write(filename=out_file)
+        print("written annotated anndata to file", out_file)
