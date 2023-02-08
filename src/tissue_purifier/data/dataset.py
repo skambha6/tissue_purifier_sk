@@ -9,6 +9,9 @@ class MetadataCropperDataset(NamedTuple):
     loc_x: Union[int, float]
     loc_y: Union[int, float]
     moran: Union[float, None]
+    sample_status: Union[int, None]
+    #cell_type_proportions: Union[list, None]
+    #tubule_staging: Union[str, None]
 
 
 class CropperTensor(torch.nn.Module):
@@ -109,10 +112,11 @@ class CropperDenseTensor(CropperTensor):
                 empty and disregarded.
         """
         assert isinstance(min_threshold_value, float)
-        self.min_threshold_value = min_threshold_value
+        self.min_threshold_value = min_threshold_value 
         assert isinstance(min_threshold_fraction, float)
-        self.min_threshold_fraction = min_threshold_fraction
+        self.min_threshold_fraction = min_threshold_fraction 
 
+        ## double check this method
         def criterium_fn(potential_crops):
             masks = potential_crops.sum(dim=-3, keepdim=False) > min_threshold_value
             number_of_true = masks.flatten(start_dim=-2).sum(dim=-1)
@@ -228,8 +232,16 @@ class CropperSparseTensor(CropperTensor):
         self.n_element_min = n_element_min
 
         def criterium_fn(n_elements):
+            #print("n elements shape:")
+            #print(len(n_elements))
+            #dummy =  torch.Tensor([True for i in range(len(n_elements))]).type(torch.BoolTensor)
+            #print(dummy)
+            #print(n_elements >= n_element_min)
+            #return dummy #n_elements >= n_element_min 
+            #print("n_elements:")
+            #print(n_elements)
             return n_elements >= n_element_min
-
+            
         super().__init__(criterium_fn=criterium_fn,
                          **kargs)
 
@@ -250,8 +262,7 @@ class CropperSparseTensor(CropperTensor):
         x_pixel: torch.Tensor
         y_pixel: torch.Tensor
         codes, x_pixel, y_pixel = sparse_tensor.indices()  # each has shape (n_element)
-        print(codes.shape)
-        print(x_pixel.shape)
+        
         values = sparse_tensor.values()
         ch, w_img, h_img = sparse_tensor.size()
 
@@ -306,6 +317,11 @@ class CropperSparseTensor(CropperTensor):
         codes, x_pixel, y_pixel = sparse_tensor.indices()  # each has shape (n_elements)
         values = sparse_tensor.values()
 
+        # print("codes shape:")
+        # print(codes.shape)
+        # print("x pixel shape:")
+        # print(x_pixel.shape)
+        
         ch, w_img, h_img = sparse_tensor.size()
 
         if strategy == 'tiling':
@@ -351,7 +367,8 @@ class CropperSparseTensor(CropperTensor):
                        (y_pixel >= y_corner) * \
                        (y_pixel < y_corner + crop_size)  # shape: (n_crops * SAFETY_FACTOR, n_elements)
 
-        n_elements = (values * element_mask).sum(dim=-1)  # shape (n_crops * SAFETY_FACTOR)
+        ### FIX THIS FOR PCM MAPPING #####
+        n_elements = (values * element_mask).sum(dim=-1)  # shape (n_crops * SAFETY_FACTOR) 
         valid_patch = criterium_fn(n_elements)
         n_valid_patches = valid_patch.sum().item()
         if n_valid_patches < n_crops:
@@ -491,7 +508,9 @@ class CropperDataset(Dataset):
             return [(crop, code_base, MetadataCropperDataset(f_name=metadata_base.f_name,
                                                              loc_x=metadata_base.loc_x + x_loc,
                                                              loc_y=metadata_base.loc_y + y_loc,
-                                                             moran=None)) for
+                                                             moran=None,
+                                                             sample_status = None
+                                                            )) for
                     crop, x_loc, y_loc in zip(crop_list, loc_x_list, loc_y_list)]
 
 

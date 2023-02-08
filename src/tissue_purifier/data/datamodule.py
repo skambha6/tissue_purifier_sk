@@ -423,6 +423,9 @@ class SparseSslDM(SslDM):
         else:
             batch_size_dataloader = max(1, int(self._batch_size_per_gpu // self._dataset_train.n_crops_per_tissue))
 
+        print("batch size dataloader:")
+        print(batch_size_dataloader)
+        
         dataloader_train = DataLoaderWithLoad(
             # move the dataset to GPU so that the cropping happens there
             dataset=self._dataset_train.to(device),
@@ -497,6 +500,7 @@ class AnndataFolderDM(SparseSslDM):
                  y_key: str,
                  category_keys: array,
                  categories_to_channels: Dict[Any, int],
+                 status_key: str,
                  metadata_to_classify: Callable,
                  metadata_to_regress: Callable,
                  num_workers: int,
@@ -538,6 +542,7 @@ class AnndataFolderDM(SparseSslDM):
         self._categories_to_channels = categories_to_channels
         self._metadata_to_regress = metadata_to_regress
         self._metadata_to_classify = metadata_to_classify
+        self._status_key = status_key
 
         self._num_workers = cpu_count() if num_workers is None else num_workers
         self._gpus = torch.cuda.device_count() if gpus is None else gpus
@@ -580,6 +585,8 @@ class AnndataFolderDM(SparseSslDM):
         parser.add_argument("--category_keys", nargs='*',
                             help="keys associated with the the probability values (cell_types or gene_identities; can be one-hot encoded) \
                             in the AnnData object")
+        parser.add_argument("--status_key", type=str, default="status",
+                            help="keys associated with sample status, located in anndata.uns")
         parser.add_argument("--weights_key", type=str, default="cell_type_proportions",
                     help="obsm key for weights in each channel")
         parser.add_argument("--categories_to_channels", nargs='*', action=ParseDict,
@@ -612,6 +619,7 @@ class AnndataFolderDM(SparseSslDM):
             category_keys=self._category_keys,
             pixel_size=self._pixel_size,
             categories_to_channels=self._categories_to_channels,
+            status_key = self._status_key,
             padding=10)
 
     def prepare_data(self):
@@ -625,15 +633,23 @@ class AnndataFolderDM(SparseSslDM):
             # checking if it is a file
             if os.path.isfile(f) and filename.endswith('h5ad'):
                 print("reading file {}".format(f))
+                
+                # import psutil
+                # print(psutil.virtual_memory())
+                
                 anndata = read_h5ad(filename=f)
+                
                 anndata.X = None  # set the count matrix to None
                 sp_img = self.anndata_to_sparseimage(anndata=anndata).cpu()
                 all_sparse_images.append(sp_img)
 
-                metadata = MetadataCropperDataset(f_name=filename, loc_x=0.0, loc_y=0.0, moran=-99)
+                #metadata = MetadataCropperDataset(f_name=filename, loc_x=0.0, loc_y=0.0, moran=-99, case_control_status=0)
+                metadata = MetadataCropperDataset(f_name=filename, loc_x=0.0, loc_y=0.0, moran=-99, sample_status = 0)
                 all_metadatas.append(metadata)
 
                 all_labels.append(filename)
+                
+                del anndata ## delete anndata after converting to sparse image
 
         self._all_filenames: list = all_labels
 
@@ -644,6 +660,7 @@ class AnndataFolderDM(SparseSslDM):
         # create test_dataset_random and write to file
         all_names = [metadata.f_name for metadata in all_metadatas]
 
+        ## change this
         if torch.cuda.is_available():
             all_sparse_images = [sp_img.cuda() for sp_img in all_sparse_images]
 
@@ -655,14 +672,25 @@ class AnndataFolderDM(SparseSslDM):
             ### add majority cell type label 
             
             ###  FIX PATCH ANALYZER CODE for PROBABILISTIC CELL_TYPE_MAPPING
-            #morans = [self.compute_moran(sparse_tensor).max().item() for sparse_tensor in sps_tmp]
-            #list_composition = Composition(return_fraction=True)(sps_tmp)
-            #metadatas = [MetadataCropperDataset(f_name=fname, loc_x=loc_x, loc_y=loc_y, moran=moran) for
-            #          loc_x, loc_y, moran in zip(loc_x_tmp, loc_y_tmp, morans)] 
+            morans = [self.compute_moran(sparse_tensor).max().item() for sparse_tensor in sps_tmp]
+            statuses = [sp_img._sample_status for sparse_tensor in sps_tmp] ## replicate instead; same status for all patches in this sp img
+            list_composition = Composition(return_fraction=True)(sps_tmp)
+            metadatas = [MetadataCropperDataset(f_name=fname, loc_x=loc_x, loc_y=loc_y, moran=moran, sample_status = status) for
+                     loc_x, loc_y, moran, status in zip(loc_x_tmp, loc_y_tmp, morans, statuses)] 
             
-            metadatas = [MetadataCropperDataset(f_name=fname, loc_x=loc_x, loc_y=loc_y, moran=-99) for
-                         loc_x, loc_y in zip(loc_x_tmp, loc_y_tmp)] ### dummy metadatas
+            ## temporary, change to access sp_img 
+            
+            ## temp
+            # print("sp img")
+            # print(sp_img._spot_properties_dict)
+            # print(sp_img._patch_properties_dict)
 
+            # metadatas = [MetadataCropperDataset(f_name=fname, loc_x=loc_x, loc_y=loc_y, moran=-99, case_control_status=0) for
+            #              loc_x, loc_y in zip(loc_x_tmp, loc_y_tmp)] ### dummy metadatas
+
+            # metadatas = [MetadataCropperDataset(f_name=fname, loc_x=loc_x, loc_y=loc_y, moran=-99) for
+            #  loc_x, loc_y in zip(loc_x_tmp, loc_y_tmp)] ### dummy metadatas
+            
             test_imgs += [sp_img.cpu() for sp_img in sps_tmp]
             test_labels += labels
             test_metadatas += metadatas
@@ -673,7 +701,7 @@ class AnndataFolderDM(SparseSslDM):
     def get_metadata_to_classify(self, metadata) -> Dict[str, int]:
         """ Extract one or more quantities to classify from the metadata """
         if self._metadata_to_classify is None:
-            return {"tissue_label": self._all_filenames.index(metadata.f_name)}
+            return {"tissue_label": self._all_filenames.index(metadata.f_name), "sample_status": int(metadata.sample_status)}
         else:
             return self._metadata_to_classify(metadata)
 

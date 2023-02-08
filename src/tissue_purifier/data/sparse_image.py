@@ -34,6 +34,7 @@ class SparseImage:
         categories_to_codes: dict,
         pixel_size: float,
         padding: int = 10,
+        sample_status: int = 0,
         patch_properties_dict: dict = None,
         image_properties_dict: dict = None,
         anndata: AnnData = None):
@@ -68,6 +69,7 @@ class SparseImage:
         self._patch_properties_dict = {} if patch_properties_dict is None else patch_properties_dict
         self._image_properties_dict = {} if image_properties_dict is None else image_properties_dict
         self._anndata = anndata
+        self._sample_status = sample_status
 
         # These variables are built
         self.origin = None
@@ -80,18 +82,22 @@ class SparseImage:
         #       torch.bincount(tmp_sp.values()).cpu().numpy())
 
     #### CLEAN UP AND VET CODE ####
+    ### change to obsm from obs ###
     def _create_torch_sparse_image(self, padding: int, pixel_size: float) -> torch.sparse.Tensor:
 
         # Check all vectors are 1D and of the same length
         x_raw = torch.from_numpy(self.x_raw).float()
         y_raw = torch.from_numpy(self.y_raw).float()
+        #print(self._spot_properties_dict)
         cat_raw = self.cat_raw
+
 
         assert x_raw.shape[0] == y_raw.shape[0] == cat_raw.shape[0] and len(x_raw.shape) == 1, \
             "Error. x_raw, y_raw, cat_raw must be 1D array of the same length"
 
 
         # Check all category keys are included in categories_to_code
+        
         assert set(cat_raw.columns).issubset(set(self._categories_to_codes.keys())), \
             "Error. Some categories are NOT present in the categories_to_codes dictionary"
 
@@ -104,11 +110,11 @@ class SparseImage:
             y_raw = y_raw.cuda().float()
             codes = codes.cuda().long()
 
-        # assert x_raw.shape == y_raw.shape == codes.shape
-        # assert len(codes.shape) == 1
-        # print("number of elements --->", codes.shape[0])
-        # mean_spacing, median_spacing = self._check_mean_median_spacing(x_raw, y_raw)
-        # print("mean and median spacing {0}, {1}".format(mean_spacing, median_spacing))
+        assert x_raw.shape[0] == y_raw.shape[0] == codes.shape[1]
+        assert len(codes.shape) == 2
+        print("number of elements --->", x_raw.shape[0]) ## change for pcm?
+        mean_spacing, median_spacing = self._check_mean_median_spacing(x_raw, y_raw)
+        print("mean and median spacing {0}, {1}".format(mean_spacing, median_spacing))
 
         # Check that all codes are used at least once
         n_codes = numpy.max(list(self._categories_to_codes.values()))
@@ -677,7 +683,6 @@ class SparseImage:
         # preparation
         ## clean up
         #cell_type_codes = torch.tensor([self._categories_to_codes[cat] for cat in self.cat_raw]).long()
-        print(k)
         
         metric_features = numpy.stack((self.x_raw, self.y_raw), axis=-1)
         chs = self.shape[-3]
@@ -726,8 +731,11 @@ class SparseImage:
                 numpy.median(n_neighbours_np),
                 numpy.max(n_neighbours_np)))
 
+        # print("ncv:")
+        # print(ncv)
         ncv = ncv.float() / ncv.sum(dim=-1, keepdim=True).clamp(min=1.0)  # transform to proportions
         self.write_to_spot_dictionary(key=feature_name, values=ncv, overwrite=overwrite)
+        return ncv
 
     @torch.no_grad()
     def compute_patch_features(
@@ -780,6 +788,8 @@ class SparseImage:
         was_original_in_training_mode = model.training
         model.eval()
 
+        raw_patches = []
+        
         all_patches, all_features = [], []
         n_patches = 0
         patches_x, patches_y, patches_w, patches_h = [], [], [], []
@@ -800,6 +810,12 @@ class SparseImage:
             if return_crops:
                 all_patches.append(patches.detach().cpu())
 
+            # print("1 patch:")
+            # print(patches[0, 1, :, :])
+            
+            #patches[patches != 0] = 1.0
+            
+            raw_patches.append(patches)
             features_tmp = model(patches.cuda()) ##send patches to gpu
             if isinstance(features_tmp, torch.Tensor):
                 all_features.append(features_tmp)
@@ -1099,6 +1115,7 @@ class SparseImage:
             pixel_size: float = None,
             categories_to_channels: dict = None,
             padding: int = 10,
+            status_key: str = "status"
     ):
         """
         Create a SparseImage object from an AnnData object.
@@ -1183,7 +1200,10 @@ class SparseImage:
         
         for key in category_keys:
             spot_dictionary[key] = cat_raw[key]
-
+    
+        # print("anndata obs keys:")
+        # print(anndata.obs.keys())
+        
         for k in anndata.obs.keys():
             if k not in {x_key, y_key} and k not in category_keys:
                 spot_dictionary[k] = anndata.obs[k]
@@ -1206,7 +1226,8 @@ class SparseImage:
                 padding=state_dict["padding"],
                 patch_properties_dict=state_dict["patch_properties_dict"],
                 image_properties_dict=state_dict["image_properties_dict"],
-                anndata=anndata)
+                anndata=anndata,
+                sample_status = anndata.uns[status_key]) ## double check
             return sparse_img_object
 
         except KeyError:
@@ -1222,7 +1243,7 @@ class SparseImage:
             if pixel_size is None:
                 mean_dnn, median_dnn = cls._check_mean_median_spacing(torch.tensor(x_raw), torch.tensor(y_raw))
                 pixel_size = 0.25 * median_dnn
-
+            
             sparse_img_obj = cls(
                 spot_properties_dict=spot_dictionary,
                 x_key="x_key",
@@ -1234,6 +1255,7 @@ class SparseImage:
                 patch_properties_dict=None,
                 image_properties_dict=None,
                 anndata=anndata,
+                sample_status = anndata.uns[status_key] ## double check; add try/except block for this
             )
 
         return sparse_img_obj

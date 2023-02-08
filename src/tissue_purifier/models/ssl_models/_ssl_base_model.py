@@ -236,7 +236,8 @@ def knn_classification_regression(world_dict: dict, val_iomin_threshold: float):
 
     # loop over subset made of non-overlapping patches
     df_tot = None
-    for n in range(20):
+    for n in range(10): #range(20): #oom error
+        
         # create a dictionary with only non-overlapping patches to test kn-regressor/classifier
         nms_mask_n = NonMaxSuppression.perform_nms_selection(mask_overlap_nn=binarized_overlap_nn,
                                                              score_n=torch.rand_like(initial_score),
@@ -311,7 +312,7 @@ def linear_classification_regression(world_dict: dict, val_iomin_threshold: floa
 
     # loop over subset made of non-overlapping patches
     df_tot = None
-    for n in range(20):
+    for n in range(10): #range(20): # oom error
         # create a dictionary with only non-overlapping patches to test kn-regressor/classifier
         nms_mask_n = NonMaxSuppression.perform_nms_selection(mask_overlap_nn=binarized_overlap_nn,
                                                              score_n=torch.rand_like(initial_score),
@@ -462,10 +463,12 @@ class SslModelBase(LightningModule):
             "features_head": z,
             "patches_xywh": patches_xywh
         }
-
+        
+            
         # Add to this dictionary the things I want to classify and regress
         dict_classify = concatenate_list_of_dict([self.get_metadata_to_classify(metadata)
                                                   for metadata in list_metadata])
+        
         for k, v in dict_classify.items():
             val_dict["classify_"+k] = torch.tensor(v, device=self.device)
 
@@ -512,6 +515,10 @@ class SslModelBase(LightningModule):
                 annotation_keys = []
                 umap_keys = []
                 all_keys = list(world_dict.keys())
+                
+                print("all keys:")
+                print(all_keys)
+                
                 for k in all_keys:
                     if k.startswith("feature"):
                         embedding_keys.append(k)
@@ -528,6 +535,7 @@ class SslModelBase(LightningModule):
 
                 print("starting to make umaps")
                 all_files = []
+                
                 for umap_key in umap_keys:
                     fig_tmp = plot_embeddings(
                         input_dictionary=world_dict,
@@ -538,6 +546,11 @@ class SslModelBase(LightningModule):
                     )
                     all_files.append(File.as_image(fig_tmp))
                 print("done making umaps")
+                
+                print(embedding_keys)
+                print(annotation_keys)
+                print(umap_keys)
+                print(all_keys)
 
                 print("starting to log the umaps")
                 for file_tmp, key_tmp in zip(all_files, embedding_keys):
