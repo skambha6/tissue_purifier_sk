@@ -422,9 +422,6 @@ class SparseSslDM(SslDM):
             batch_size_dataloader = self._batch_size_per_gpu
         else:
             batch_size_dataloader = max(1, int(self._batch_size_per_gpu // self._dataset_train.n_crops_per_tissue))
-
-        print("batch size dataloader:")
-        print(batch_size_dataloader)
         
         dataloader_train = DataLoaderWithLoad(
             # move the dataset to GPU so that the cropping happens there
@@ -498,7 +495,7 @@ class AnndataFolderDM(SparseSslDM):
                  pixel_size: float,
                  x_key: str,
                  y_key: str,
-                 category_keys: array,
+                 category_key: str,
                  categories_to_channels: Dict[Any, int],
                  status_key: str,
                  metadata_to_classify: Callable,
@@ -513,7 +510,7 @@ class AnndataFolderDM(SparseSslDM):
             pixel_size: size of the pixel (used to convert raw_coordinates to pixel_coordinates)
             x_key: key associated with the x_coordinate in the AnnData object
             y_key: key associated with the y_coordinate in the AnnData object
-            category_keys: keys associated with the assignment probabilities (cell_types or gene_identities; can be one-hot encoded for categorical assignments)
+            category_key: key associated with the assignment probabilities (cell_types or gene_identities; can be one-hot encoded for categorical assignments)
                 in the AnnData object
             categories_to_channels: dictionary with the mapping from categorical values to channels in the image.
                 The values must be non-negative integers
@@ -538,7 +535,7 @@ class AnndataFolderDM(SparseSslDM):
         self._pixel_size = pixel_size
         self._x_key = x_key
         self._y_key = y_key
-        self._category_keys = category_keys
+        self._category_key = category_key
         self._categories_to_channels = categories_to_channels
         self._metadata_to_regress = metadata_to_regress
         self._metadata_to_classify = metadata_to_classify
@@ -582,8 +579,8 @@ class AnndataFolderDM(SparseSslDM):
                             help="key associated with the x_coordinate in the AnnData object")
         parser.add_argument("--y_key", type=str, default="y",
                             help="key associated with the y_coordinate in the AnnData object")
-        parser.add_argument("--category_keys", nargs='*',
-                            help="keys associated with the the probability values (cell_types or gene_identities; can be one-hot encoded) \
+        parser.add_argument("--category_key", type=str, default="cell_type",
+                            help="key associated with the the probability values (cell_types or gene_identities; can be one-hot encoded) \
                             in the AnnData object")
         parser.add_argument("--status_key", type=str, default="status",
                             help="keys associated with sample status, located in anndata.uns")
@@ -616,7 +613,7 @@ class AnndataFolderDM(SparseSslDM):
             anndata=anndata,
             x_key=self._x_key,
             y_key=self._y_key,
-            category_keys=self._category_keys,
+            category_key=self._category_key,
             pixel_size=self._pixel_size,
             categories_to_channels=self._categories_to_channels,
             status_key = self._status_key,
@@ -644,7 +641,7 @@ class AnndataFolderDM(SparseSslDM):
                 all_sparse_images.append(sp_img)
 
                 #metadata = MetadataCropperDataset(f_name=filename, loc_x=0.0, loc_y=0.0, moran=-99, case_control_status=0)
-                metadata = MetadataCropperDataset(f_name=filename, loc_x=0.0, loc_y=0.0, moran=-99, sample_status = 0)
+                metadata = MetadataCropperDataset(f_name=filename, loc_x=0.0, loc_y=0.0, moran=-99, sample_status = 0, composition=None)
                 all_metadatas.append(metadata)
 
                 all_labels.append(filename)
@@ -666,6 +663,7 @@ class AnndataFolderDM(SparseSslDM):
 
         test_imgs, test_labels, test_metadatas = [], [], []
         for sp_img, label, fname in zip(all_sparse_images, all_labels, all_names):
+            
             sps_tmp, loc_x_tmp, loc_y_tmp = self.cropper_test(sp_img, n_crops=self._n_crops_for_tissue_test)
             labels = [label] * len(sps_tmp)
 
@@ -675,8 +673,8 @@ class AnndataFolderDM(SparseSslDM):
             morans = [self.compute_moran(sparse_tensor).max().item() for sparse_tensor in sps_tmp]
             statuses = [sp_img._sample_status for sparse_tensor in sps_tmp] ## replicate instead; same status for all patches in this sp img
             list_composition = Composition(return_fraction=True)(sps_tmp)
-            metadatas = [MetadataCropperDataset(f_name=fname, loc_x=loc_x, loc_y=loc_y, moran=moran, sample_status = status) for
-                     loc_x, loc_y, moran, status in zip(loc_x_tmp, loc_y_tmp, morans, statuses)] 
+            metadatas = [MetadataCropperDataset(f_name=fname, loc_x=loc_x, loc_y=loc_y, moran=moran, sample_status=status, composition=composition) for
+                     loc_x, loc_y, moran, status, composition in zip(loc_x_tmp, loc_y_tmp, morans, statuses,list_composition)] 
             
             ## temporary, change to access sp_img 
             
@@ -708,10 +706,15 @@ class AnndataFolderDM(SparseSslDM):
     def get_metadata_to_regress(self, metadata) -> Dict[str, float]:
         """ Extract one or more quantities to regress from the metadata """
         if self._metadata_to_regress is None:
-            return {
+            regress_dict = {
                 "moran": float(metadata.moran),
                 "loc_x": float(metadata.loc_x),
             }
+            
+            for ch in range(len(metadata.composition)):
+                regress_dict["ch_" + str(ch)] = metadata.composition[ch].item()
+                
+            return regress_dict
         else:
             return self._metadata_to_regress(metadata)
 

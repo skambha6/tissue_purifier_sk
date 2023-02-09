@@ -10,8 +10,7 @@ class MetadataCropperDataset(NamedTuple):
     loc_y: Union[int, float]
     moran: Union[float, None]
     sample_status: Union[int, None]
-    #cell_type_proportions: Union[list, None]
-    #tubule_staging: Union[str, None]
+    composition: Union[list, None]
 
 
 class CropperTensor(torch.nn.Module):
@@ -509,7 +508,8 @@ class CropperDataset(Dataset):
                                                              loc_x=metadata_base.loc_x + x_loc,
                                                              loc_y=metadata_base.loc_y + y_loc,
                                                              moran=None,
-                                                             sample_status = None
+                                                             sample_status=None,
+                                                             composition=None
                                                             )) for
                     crop, x_loc, y_loc in zip(crop_list, loc_x_list, loc_y_list)]
 

@@ -102,7 +102,7 @@ class SpatialAutocorrelation:
         #print(category_tmp) ## take cell type with highest proportion as cell-type label for computing moran's
         values = sparse_tensor.values()
 
-        values = values.type(torch.int64)
+        values = values.type(torch.int64) ## delete this?
         
 #         print("dim:")
 #         print(category_tmp.shape)
@@ -112,15 +112,19 @@ class SpatialAutocorrelation:
 #         print("values:")
 #         print(values.shape)
 #         #print(values.max())
-#         print(values.max().item())
+        #print(sparse_tensor)
+        #print(values.max().item())
+        
+        # if values.max().item() > 1.0:
+        #     import pdb; pdb.set_trace()
         #print(values)
         
         # print("values shape:")
         # print(values.shape)
         
-
+        
         ## fig out how to deal for pcm where values are < 1?
-        if values.max().item() == 1:
+        if values.max().item() <= 1:
             coords = torch.stack((x_pixel, y_pixel), dim=-1)
             category = category_tmp
         else:

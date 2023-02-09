@@ -30,7 +30,7 @@ class SparseImage:
         spot_properties_dict: dict,
         x_key: str,
         y_key: str,
-        category_keys: array,
+        category_key: str,
         categories_to_codes: dict,
         pixel_size: float,
         padding: int = 10,
@@ -45,7 +45,7 @@ class SparseImage:
             spot_properties_dict: the dictionary with the spot properties (at the minimum x,y,category)
             x_key: str, the key where the x_coordinates are stored in the spot_properties_dict
             y_key: str, the key where the y_coordinates are stored in the spot_properties_dict
-            category_keys: vec, the keys where the categories are stored in the spot_properties_dict
+            category_key: str, the key where the categories are stored in the spot_properties_dict
             categories_to_codes: dictionary with the mapping from categories (keys) to codes (values).
                 The codes must be integers starting from zero. For example {"macrophage" : 0, "t-cell": 1}.
             pixel_size: float, size of the pixel. It used in the conversion
@@ -62,8 +62,7 @@ class SparseImage:
         self._pixel_size = pixel_size
         self._x_key = x_key
         self._y_key = y_key
-        ## change this to a vector
-        self._cat_keys = category_keys
+        self._cat_key = category_key
         self._categories_to_codes = categories_to_codes
         self._spot_properties_dict = spot_properties_dict
         self._patch_properties_dict = {} if patch_properties_dict is None else patch_properties_dict
@@ -420,7 +419,7 @@ class SparseImage:
     def cat_raw(self) -> pandas.DataFrame:
         """ The categorical labels (gene-identities or cell-identities) from the original data """
         spot_properties_df = pandas.DataFrame(self._spot_properties_dict)
-        return spot_properties_df[self._cat_keys]
+        return spot_properties_df[self._anndata.obsm[self._cat_key].columns]
 
     @property
     def n_spots(self) -> int:
@@ -1111,7 +1110,7 @@ class SparseImage:
             anndata: AnnData,
             x_key: str,
             y_key: str,
-            category_keys: array,
+            category_key: str,
             pixel_size: float = None,
             categories_to_channels: dict = None,
             padding: int = 10,
@@ -1128,7 +1127,7 @@ class SparseImage:
             anndata: the AnnData object with the spatial data
             x_key: str, tha key associated with the x_coordinate in the AnnData object
             y_key: str, tha key associated with the y_coordinate in the AnnData object
-            category_keys: vec of str, the keys associated with the probability values (cell_types or gene_identities)
+            category_key: str, the key associated with the probability values (cell_types or gene_identities)
             pixel_size: float, pixel_size used to convert from raw coordinates to pixel coordinates.
                 If it is not specified it will be chosen to be 1/3 of the median of the Nearest Neighbour distances
                 between spots. Explicitely setting this attribute ensures that the pixel_size will be consistent
@@ -1151,7 +1150,7 @@ class SparseImage:
             >>>     anndata=anndata,
             >>>     x_key="spatial",
             >>>     y_key="spatial",
-            >>>     category_keys="cell_type",
+            >>>     category_key="cell_type",
             >>>     categories_to_channels=categories_to_channels)
 
          Examples:
@@ -1161,7 +1160,7 @@ class SparseImage:
             >>>     anndata=anndata,
             >>>     x_key="gene_location_x",
             >>>     y_key="gene_location_y",
-            >>>     category_keys="gene",
+            >>>     category_key="gene",
             >>>     pixel_size=6.5,
             >>>     padding=8)
         """
@@ -1185,7 +1184,7 @@ class SparseImage:
                 print(e)
                 y_raw = numpy.asarray(anndata.obsm[y_key])
         
-        cat_raw = anndata.obs[category_keys]
+        cat_raw = anndata.obsm[category_key]
 
         assert isinstance(x_raw, numpy.ndarray)
         assert isinstance(y_raw, numpy.ndarray)
@@ -1198,17 +1197,21 @@ class SparseImage:
             "y_key": y_raw}
         
         
-        for key in category_keys:
+        # for key in category_key:
+        #     spot_dictionary[key] = cat_raw[key]
+        
+        
+        for key in cat_raw:
             spot_dictionary[key] = cat_raw[key]
     
         # print("anndata obs keys:")
         # print(anndata.obs.keys())
         
         for k in anndata.obs.keys():
-            if k not in {x_key, y_key} and k not in category_keys:
+            if k not in {x_key, y_key} and k not in category_key:
                 spot_dictionary[k] = anndata.obs[k]
         for k in anndata.obsm.keys():
-            if k not in {x_key, y_key} and k not in category_keys:
+            if k not in {x_key, y_key} and k not in category_key:
                 spot_dictionary[k] = anndata.obsm[k]
         # I have transferred all the observation I coukld on the spot_dict
         
@@ -1220,7 +1223,7 @@ class SparseImage:
                 spot_properties_dict=spot_dictionary,
                 x_key="x_key",
                 y_key="y_key",
-                category_keys=category_keys,
+                category_key=category_key,
                 categories_to_codes=state_dict["categories_to_codes"],
                 pixel_size=state_dict["pixel_size"],
                 padding=state_dict["padding"],
@@ -1248,7 +1251,7 @@ class SparseImage:
                 spot_properties_dict=spot_dictionary,
                 x_key="x_key",
                 y_key="y_key",
-                category_keys=category_keys,
+                category_key=category_key,
                 categories_to_codes=categories_to_channels,
                 pixel_size=pixel_size,
                 padding=padding,
@@ -1277,13 +1280,13 @@ class SparseImage:
 
         Examples:
             >>> adata = sparse_image.to_anndata()
-            >>> sparse_image_new = SparseImage.from_anndata(adata, x_key="x", y_key="y", category_keys="cell_type")
+            >>> sparse_image_new = SparseImage.from_anndata(adata, x_key="x", y_key="y", category_key="cell_type")
         """
         if self.anndata is None:
             minimal_spot_dict = {
                 self._x_key: self.x_raw,
                 self._y_key: self.y_raw,
-                self._cat_keys: self.cat_raw,
+                self._cat_key: self.cat_raw,
             }
             adata = AnnData(obs=minimal_spot_dict)
         else:
@@ -1292,8 +1295,9 @@ class SparseImage:
         # add the OTHER (missing) spot properties to either adata.obs or adata.obsm
         set_obs_keys = set(adata.obs_keys())
         set_obsm_keys = set(adata.obsm_keys())
+
         for k, v in self._spot_properties_dict.items():
-            if k not in {self._x_key, self._y_key} and k not in self._cat_keys and\
+            if k not in {self._x_key, self._y_key} and k not in self.anndata.obsm[self._cat_key].columns and\
                     k not in set_obs_keys and \
                     k not in set_obsm_keys:
 
