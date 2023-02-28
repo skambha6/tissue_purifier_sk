@@ -1,8 +1,8 @@
 # general 
 random_seed: 1
-neptune_project: cellarium/tissue-purifier
+neptune_project: skambham/tp-test
 batch_size_per_gpu: 128
-check_val_every_n_epoch: 25
+check_val_every_n_epoch: 10
 checkpoint_interval_minutes: 25
 max_time_minutes: 1440
 gradient_clip_algorithm: value
@@ -10,6 +10,7 @@ gradient_clip_val: 0.5
 initialization_type: scratch
 remote_logging: true
 # gpus: 2 update with the number of GPUs available on your system
+gpus: 1
 precision: 16
 num_workers: 4
 # debugging options
@@ -61,7 +62,9 @@ metadata_to_classify: null
 metadata_to_regress: null
 x_key: x
 y_key: y
-category_key: cell_type
+#category_key: cell_type
+#category_keys: ['ES','Endothelial','Leydig','Macrophage','Myoid','RS','SPC','SPG','Sertoli']
+category_key: cell_type_proportions
 categories_to_channels: {
         'ES': 0, 
         'Endothelial': 1, 
@@ -73,6 +76,7 @@ categories_to_channels: {
         'SPG': 7, 
         'Sertoli': 8
 }
+status_key: "status"
 
 # transform
 pixel_size: 4.0

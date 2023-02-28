@@ -1,6 +1,6 @@
 # general 
 random_seed: 1
-neptune_project: cellarium/tissue-purifier
+neptune_project: skambham/tp-test
 batch_size_per_gpu: 128
 check_val_every_n_epoch: 25
 checkpoint_interval_minutes: 25
@@ -50,7 +50,7 @@ metadata_to_classify: null
 metadata_to_regress: null
 x_key: x
 y_key: y
-category_key: cell_type
+category_key: cell_type_proportions
 categories_to_channels: {
         'ES': 0, 
         'Endothelial': 1, 
@@ -62,6 +62,9 @@ categories_to_channels: {
         'SPG': 7, 
         'Sertoli': 8
 }
+status_key: "status"
+
+block_neg: False
 
 # transform
 pixel_size: 4.0
