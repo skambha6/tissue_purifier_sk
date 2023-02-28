@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 # This script extract features and write the anndata with new annotation to file
+# loops through and does this for every anndata in a directory
 
 import argparse
 import torch
@@ -93,7 +94,7 @@ def parse_args(argv: List[str]) -> dict:
 
     if args.ncv_k is not None:
         for tmp in args.ncv_k:
-            assert isinstance(tmp, int) and tmp >= 1, "ncv_k must be a positive integer. Received {0}".format(tmp)
+            assert isinstance(tmp, int) and tmp >= 1, "ncv_k must be a positive integer. Received {0}".format(tmp) ##bug w multiple ncvs
     if args.ncv_r is not None:
         for tmp in args.ncv_r:
             assert tmp > 0, "ncv_r must be non-negative. Received {0}".format(tmp)
@@ -172,7 +173,8 @@ if __name__ == '__main__':
         sparse_img.clear_dicts(patch_dict=True, image_dict=True)
         new_anndata = sparse_img.to_anndata()
         
-        out_file_name = fname[:-5] + "_featurized.h5ad"
+        out_file_name = fname[:-5] + "_featurized.h5ad" ##user optional suffix here
+        
         out_file=os.path.join(config_dict_["anndata_out"], out_file_name)
         new_anndata.write(filename=out_file)
         print("written annotated anndata to file", out_file)
