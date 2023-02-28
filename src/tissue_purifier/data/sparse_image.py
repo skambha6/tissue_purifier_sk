@@ -804,7 +804,7 @@ class SparseImage:
             if apply_transform:
                 patches = datamodule.trsfm_test(crops)
             else:
-                patches = crops
+                patches = torch.stack(crops).float().to_dense()
 
             if return_crops:
                 all_patches.append(patches.detach().cpu())

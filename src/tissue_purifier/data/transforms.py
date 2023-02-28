@@ -113,8 +113,8 @@ class DropoutSparseTensor(torch.nn.Module):
         else:
             raise Exception("Expected float or iterable. Received {0}".format(type(dropout_rate)))
 
-        assert min(dropout_rate) > 0.0, \
-            "The minimum value of dropout rates should be > 0.0. If you want dropout = 0 set p=0.0"
+        #assert min(dropout_rate) > 0.0, \
+        #    "The minimum value of dropout rates should be > 0.0. If you want dropout = 0 set p=0.0"
         assert max(dropout_rate) < 1.0, \
             "The maximum value of dropout rates should be < 1.0"
 
@@ -132,13 +132,18 @@ class DropoutSparseTensor(torch.nn.Module):
         if not is_active:
             return sp_tensor
         else:
-            index = torch.randint(low=0, high=self.dropouts_len, size=[1]).item()
-            success_probability = 1.0 - self.dropout_rate[index]
+            #index = torch.randint(low=0, high=self.dropouts_len, size=[1]).item()
+
+            high = self.dropout_rate[1]
+            low = self.dropout_rate[0]
+            drop_probability = (high - low) * torch.rand(1) + low
+
+            success_probability = 1.0 - drop_probability #- self.dropout_rate[index]
 
             values = sp_tensor.values()
             values_new = torch.distributions.binomial.Binomial(total_count=values.float(),
                                                                probs=success_probability,
-                                                               validate_args=False).sample().int()
+                                                               validate_args=False).sample()#.int() # casting back to int
             mask_filter = (values_new > 0)
 
             return torch.sparse_coo_tensor(
@@ -292,6 +297,10 @@ class DropChannel(torch.nn.Module):
             tensor[active] = tmp
         return tensor
 
+# class Jitter(torch.nn.Module):
+#     """
+#     Add Gaussian noise to coordinates (to simulate fact that cells are not located exactly where beads are
+#     """
 
 class RandomStraightCut(torch.nn.Module):
     """

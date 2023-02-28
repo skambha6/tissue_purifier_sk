@@ -330,17 +330,18 @@ class SparseSslDM(SslDM):
             random_order=True,
         )
 
+    ## remove augmentations from trsfm_test
     @property
     def trsfm_test(self) -> TransformForList:
         """ Transformation to be applied at test time. This specify the data-augmentation at test time. """
         return TransformForList(
             transform_before_stack=torchvision.transforms.Compose([
-                DropoutSparseTensor(p=0.5, dropout_rate=self._drop_spot_probs),
+                #DropoutSparseTensor(p=0.5, dropout_rate=self._drop_spot_probs),
                 SparseToDense(),
-                Rasterize(sigmas=self._rasterize_sigmas, normalize=False),
-                RandomVFlip(p=0.5),
-                RandomHFlip(p=0.5),
-                RandomGlobalIntensity(f_min=self._global_intensity[0], f_max=self._global_intensity[1])
+                Rasterize(sigmas=self._rasterize_sigmas, normalize=False)
+                #RandomVFlip(p=0.5),
+                #RandomHFlip(p=0.5),
+                #RandomGlobalIntensity(f_min=self._global_intensity[0], f_max=self._global_intensity[1])
             ]),
             transform_after_stack=torchvision.transforms.CenterCrop(size=self.global_size),
         )
@@ -353,12 +354,11 @@ class SparseSslDM(SslDM):
         """
         return TransformForList(
             transform_before_stack=torchvision.transforms.Compose([
-                DropoutSparseTensor(p=0.5, dropout_rate=self._drop_spot_probs),
+                DropoutSparseTensor(p=1.0, dropout_rate=self._drop_spot_probs),
                 SparseToDense(),
                 RandomGlobalIntensity(f_min=self._global_intensity[0], f_max=self._global_intensity[1])
             ]),
             transform_after_stack=torchvision.transforms.Compose([
-                Rasterize(sigmas=self._rasterize_sigmas, normalize=False),
                 torchvision.transforms.RandomRotation(
                     degrees=(-180.0, 180.0),
                     interpolation=torchvision.transforms.InterpolationMode.BILINEAR,
@@ -374,6 +374,7 @@ class SparseSslDM(SslDM):
                     interpolation=torchvision.transforms.InterpolationMode.BILINEAR),
                 RandomStraightCut(p=0.5, occlusion_fraction=self._occlusion_fraction),
                 DropChannel(p=self._drop_channel_prob, relative_frequency=self._drop_channel_relative_freq),
+                Rasterize(sigmas=self._rasterize_sigmas, normalize=False),
             ])
         )
 
@@ -385,12 +386,11 @@ class SparseSslDM(SslDM):
         """
         return TransformForList(
             transform_before_stack=torchvision.transforms.Compose([
-                DropoutSparseTensor(p=0.5, dropout_rate=self._drop_spot_probs),
+                DropoutSparseTensor(p=1.0, dropout_rate=self._drop_spot_probs),
                 SparseToDense(),
                 RandomGlobalIntensity(f_min=self._global_intensity[0], f_max=self._global_intensity[1])
             ]),
             transform_after_stack=torchvision.transforms.Compose([
-                Rasterize(sigmas=self._rasterize_sigmas, normalize=False),
                 torchvision.transforms.RandomRotation(
                     degrees=(-180.0, 180.0),
                     interpolation=torchvision.transforms.InterpolationMode.BILINEAR,
@@ -406,6 +406,7 @@ class SparseSslDM(SslDM):
                     interpolation=torchvision.transforms.InterpolationMode.BILINEAR),
                 RandomStraightCut(p=0.5, occlusion_fraction=self._occlusion_fraction),
                 DropChannel(p=self._drop_channel_prob, relative_frequency=self._drop_channel_relative_freq),
+                Rasterize(sigmas=self._rasterize_sigmas, normalize=False),
             ])
         )
     

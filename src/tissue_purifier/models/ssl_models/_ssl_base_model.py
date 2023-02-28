@@ -338,6 +338,12 @@ def linear_classification_regression(world_dict: dict, val_iomin_threshold: floa
     return df_mean, df_std
 
 
+# ## do this for overlapping vs non-overlapping patches
+# def plot_clusters_spatially(world_dict: dict, val_iomin_threshold: float):
+    
+    
+
+
 class SslModelBase(LightningModule):
     """
     Base class for the self-supervised learning (ssl) models (Vae, Dino, Barlow, Simclr).

@@ -231,14 +231,6 @@ class CropperSparseTensor(CropperTensor):
         self.n_element_min = n_element_min
 
         def criterium_fn(n_elements):
-            #print("n elements shape:")
-            #print(len(n_elements))
-            #dummy =  torch.Tensor([True for i in range(len(n_elements))]).type(torch.BoolTensor)
-            #print(dummy)
-            #print(n_elements >= n_element_min)
-            #return dummy #n_elements >= n_element_min 
-            #print("n_elements:")
-            #print(n_elements)
             return n_elements >= n_element_min
             
         super().__init__(criterium_fn=criterium_fn,
@@ -366,10 +358,20 @@ class CropperSparseTensor(CropperTensor):
                        (y_pixel >= y_corner) * \
                        (y_pixel < y_corner + crop_size)  # shape: (n_crops * SAFETY_FACTOR, n_elements)
 
-        ### FIX THIS FOR PCM MAPPING #####
-        n_elements = (values * element_mask).sum(dim=-1)  # shape (n_crops * SAFETY_FACTOR) 
+#         ### FIX THIS FOR PCM MAPPING #####
+        if torch.any(values < 1.0): ## if values are probabilistic, change to one hot for purpose of determining valid crop
+                                    ## possibly change this to input flag in config dict 
+            values_oh = values.clone()
+            values_oh[values_oh != 0] = 1
+            
+            n_elements = (values_oh * element_mask).sum(dim=-1)  # shape (n_crops * SAFETY_FACTOR)   
+        else:
+            n_elements = (values * element_mask).sum(dim=-1)
+        
         valid_patch = criterium_fn(n_elements)
         n_valid_patches = valid_patch.sum().item()
+        
+        
         if n_valid_patches < n_crops:
             # import warnings
             # warnings.warn("Warning. Not enough valid crops found. Change the parameters. ")
