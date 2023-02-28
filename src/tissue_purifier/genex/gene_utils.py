@@ -1,6 +1,7 @@
 import torch
 import numpy
 from scanpy import AnnData
+from scanpy import pp
 from typing import NamedTuple, Union, List, Any, Optional
 from sklearn.model_selection import StratifiedShuffleSplit, ShuffleSplit
 from tissue_purifier.utils.validation_util import SmartPca
@@ -36,6 +37,9 @@ class GeneDataset(NamedTuple):
 
     #: long tensor with the count data of shape (n, g)
     counts: torch.Tensor
+    
+    #: float tensor with the cell type proportions for each pixel of shape (n, k)
+    cell_type_props: torch.Tensor
 
     #: number of cell types
     k_cell_types: int
@@ -45,6 +49,9 @@ class GeneDataset(NamedTuple):
 
     #: list of the gene names
     gene_names: List[str]
+    
+    
+    
 
     def describe(self):
         """ Method which described the content and the GeneDataset. """
@@ -68,9 +75,11 @@ def make_gene_dataset_from_anndata(
     Convert a anndata object into a GeneDataset object which can be used for gene regression.
 
     Args:
-        anndata: AnnData object with the raw counts stored in anndata.X
+        anndata: AnnData object with the raw counts stored in anndata.X 
         cell_type_key: key corresponding to the cell type, i.e. cell_types = anndata.obs[cell_type_key]
         covariate_key: key corresponding to the covariate, i.e. covariates = anndata.obsm[covariate_key]
+        cell_type_prop_keys: key coresponding to the proportions for all k cell types, i.e. prop of cell_type k = 
+            anndata.obs[cell_type_prop_keys[k]]
         preprocess_strategy: either 'center', 'z_score' or 'raw'. It describes how to preprocess the covariates.
             'raw' (default) means no preprocessing.
         apply_pca: if True, we compute the pca of the covariates. This operation happens after the preprocessing.
@@ -106,6 +115,10 @@ def make_gene_dataset_from_anndata(
     cell_type_ids_n, mapping_dict = _make_labels(cell_types)
     counts_ng = torch.tensor(anndata.X.toarray()).long()
     covariates_nl_raw = torch.tensor(anndata.obsm[covariate_key])
+    
+    ## use mapping_dict.keys() so that order of cell types matches
+    cell_type_props = torch.tensor(anndata.obs[mapping_dict.keys()].to_numpy()).float()
+    
 
     if not torch.all(torch.isfinite(covariates_nl_raw)):
         mask = torch.isfinite(covariates_nl_raw)
@@ -132,11 +145,12 @@ def make_gene_dataset_from_anndata(
         new_covariate = covariates_nl_raw - mean
     else:
         new_covariate = covariates_nl_raw
-
+    
     return GeneDataset(
         cell_type_ids=_to_torch(cell_type_ids_n),
         covariates=_to_torch(new_covariate),
         counts=_to_torch(counts_ng),
+        cell_type_props = _to_torch(cell_type_props),
         k_cell_types=k_cell_types,
         cell_type_mapping=mapping_dict,
         gene_names=list(anndata.var_names),
@@ -194,7 +208,7 @@ def train_test_val_split(
         arrays = data
     elif isinstance(data, GeneDataset):
         # same order as in the definition of GeneDataset NamedTuple
-        arrays = [data.covariates, data.cell_type_ids, data.counts]
+        arrays = [data.covariates, data.cell_type_ids, data.counts, data.cell_type_props]
     else:
         raise ValueError("data must be a list or a GeneDataset")
 
