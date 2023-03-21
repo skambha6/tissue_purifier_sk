@@ -133,6 +133,8 @@ def make_gene_dataset_from_anndata(
     else:
         new_covariate = covariates_nl_raw
 
+    #assert(np.all(np.array(gene_dataset.counts) == counts_ng))
+    
     return GeneDataset(
         cell_type_ids=_to_torch(cell_type_ids_n),
         covariates=_to_torch(new_covariate),
