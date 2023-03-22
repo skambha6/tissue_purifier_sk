@@ -85,31 +85,57 @@ class GeneRegression:
            total_umi_n: torch.Tensor,
            covariates_nl: torch.Tensor,
            cell_type_ids_n: torch.Tensor,
+           l1_regularization_strength: float,
+           l2_regularization_strength: float,
            subsample_size_cells: int,
            **kargs):
         
+        ## regularization parameters do nothing if GR doesn't have self._use_covariates = True
         
         # Define the right device:
         device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         
         # Define the plates (i.e. conditional independence). It make sense to subsample only cells.
         cell_plate = pyro.plate("cells", size=n_cells, dim=-1, device=device, subsample_size=subsample_size_cells)
-        
-        #cell_types_plate = pyro.plate("cell_types", size=k_cell_types, dim=-3, device=device) # don't need
+        #cell_types_plate = pyro.plate("cell_types", size=k_cell_types, dim=-1, device=device)
         
         
         # Figure out a reasonable initialization for beta0_kg; initialize at zero for now
-        beta0_k1g = pyro.param("beta0", torch.zeros((k_cell_types,1,g_genes)).to(device))
+        beta0_k1g = pyro.param("beta0", torch.zeros((k_cell_types,1,g_genes)))
         
         if self._use_covariates:
-            beta_klg = pyro.param("beta", torch.zeros((k_cell_types, l_cov, g_genes), device=device))
+            
+            #with cell_types_plate:
+                # default prior without regularization 
+                # (note the mask statement. This will always give log_prob and kl_divergence =0)
+            beta_prior = dist.Normal(loc=0, scale=0.1)
+            
+            
+            assert not (l1_regularization_strength is not None and l2_regularization_strength is not None), \
+                "L1 + L2 regularization not supported currently"
+            
+            if l1_regularization_strength is not None:
+                    # l1 prior
+                    beta_prior = dist.Laplace(loc=0, scale=1 / l1_regularization_strength)
+            elif l2_regularization_strength is not None:
+                # l2 prior
+                beta_prior = dist.Normal(loc=0, scale=1 / l2_regularization_strength)
+            else:
+                # no prior (note the mask statement. This will always give log_prob and kl_divergence =0)
+                beta_prior = dist.Normal(loc=0, scale=0.1).mask(False) ##keep mask as false?
+                    
+            beta_klg = pyro.sample("beta_cov", beta_prior.expand([k_cell_types, l_cov, g_genes]).to_event(3)).to(device)
+
+            assert beta_klg.shape == torch.Size([k_cell_types, l_cov, g_genes]), \
+                "Received {}".format(beta_klg.shape)
+
             covariate_nl1 = covariates_nl.unsqueeze(dim=-1).to(device)
         
         with cell_plate as ind_n:
             
             cell_ids_sub_n = cell_type_ids_n[ind_n].to(device)
             total_umi_sub_n1 = total_umi_n[ind_n, None].to(device)
-            counts_sub_ng = counts_ng[ind_n]
+            counts_sub_ng = counts_ng[ind_n].to(device)
             
             beta0_sub_n1g = beta0_k1g[cell_ids_sub_n]
             
@@ -130,7 +156,7 @@ class GeneRegression:
                 
             return pyro.sample("counts",
                 Poisson(rate=total_umi_sub_n1*(log_mu_sub_ng.exp())).to_event(1),
-                obs=counts_sub_ng.to(device))
+                obs=counts_sub_ng)
         
     def _guide(self,            
            n_cells: int,
@@ -141,10 +167,34 @@ class GeneRegression:
            total_umi_n: torch.Tensor,
            covariates_nl: torch.Tensor,
            cell_type_ids_n: torch.Tensor,
+           l1_regularization_strength: float,
+           l2_regularization_strength: float,
            subsample_size_cells: int,
            **kargs):
         
-        pass
+        if self._use_covariates:
+            # Define the right device:
+            device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+            # Define the plates (i.e. conditional independence). It make sense to subsample only cells.
+            #cell_plate = pyro.plate("cells", size=n_cells, dim=-1, device=device, subsample_size=subsample_size_cells)
+            #cell_types_plate = pyro.plate("cell_types", size=k_cell_types, dim=-1, device=device)
+
+            ## Look for MAP estimate of beta (delta distribution) with default prior (N(0, 
+
+            #beta_param_loc_klg = pyro.param("beta_loc", dist.Normal(loc=0, scale=0.1).mask(False), device=device)
+            beta_param_loc_klg = pyro.param("beta", 0.1 * torch.randn((k_cell_types, l_cov, g_genes)))
+
+            #with cell_types_plate:
+            #pyro.sample("beta_cov", dist.Delta(v=beta_param_loc_klg).mask(False).to_event(3))
+            pyro.sample("beta_cov", dist.Delta(v=beta_param_loc_klg).to_event(3))
+                
+            # with cell_plate as ind_n:
+            #     beta_loc_sub_nlg = beta_param_loc_klg[ind_n]
+            #     pyro.sample("beta", dist.Delta(v=beta_loc_sub_nlg).to(device))
+            
+        else:
+            pass
     
     @property
     def optimizer(self) -> pyro.optim.PyroOptim:
@@ -267,6 +317,8 @@ class GeneRegression:
               dataset: GeneDataset,
               n_steps: int = 2500,
               print_frequency: int = 50,
+              l1_regularization_strength: float = None,
+              l2_regularization_strength: float = None,
               subsample_size_cells: int = None,
               **kargs
               ):
@@ -310,6 +362,9 @@ class GeneRegression:
         train_kargs["total_umi_n"] = total_umi_n.cpu()
         train_kargs["cell_type_ids_n"] = cell_type_ids
         train_kargs["covariates_nl"] = dataset.covariates.float().cpu()
+        train_kargs["l1_regularization_strength"] = l1_regularization_strength
+        train_kargs["l2_regularization_strength"] = l2_regularization_strength
+        
         
         beta0_k1g_store = []
         beta_klg_store = []
