@@ -87,6 +87,7 @@ class GeneRegression:
            cell_type_ids_n: torch.Tensor,
            l1_regularization_strength: float,
            l2_regularization_strength: float,
+           beta0_g_init: torch.Tensor,
            subsample_size_cells: int,
            **kargs):
         
@@ -101,7 +102,9 @@ class GeneRegression:
         
         
         # Figure out a reasonable initialization for beta0_kg; initialize at zero for now
-        beta0_k1g = pyro.param("beta0", torch.zeros((k_cell_types,1,g_genes)))
+        ## initialize following nUMIs to encourage beta's to be 0 centered
+        #beta0_k1g = pyro.param("beta0", torch.zeros((k_cell_types,1,g_genes)))
+        beta0_k1g = pyro.param("beta0", beta0_g_init[None, None].expand(k_cell_types,1,g_genes).to(device))
         
         if self._use_covariates:
             
@@ -169,6 +172,7 @@ class GeneRegression:
            cell_type_ids_n: torch.Tensor,
            l1_regularization_strength: float,
            l2_regularization_strength: float,
+           beta0_g_init: torch.Tensor,
            subsample_size_cells: int,
            **kargs):
         
@@ -353,6 +357,12 @@ class GeneRegression:
         cell_type_ids = dataset.cell_type_ids.long()
         total_umi_n = counts_ng.sum(dim=-1)
         
+        # Figure out a good initialization for beta0 based on: counts = total_umi * beta0.exp()
+        ## initialize in cell-type specific manner?
+        fraction_ng = counts_ng / total_umi_n.view(-1, 1)
+        tmp_g = fraction_ng.mean(dim=0).log()
+        beta0_g_init = torch.where(torch.isfinite(tmp_g), tmp_g, torch.zeros_like(tmp_g))  # remove nan if Any
+        
         # Prepare arguments for training
         train_kargs["n_cells"] = counts_ng.shape[0]
         train_kargs["g_genes"] = counts_ng.shape[1]
@@ -364,6 +374,7 @@ class GeneRegression:
         train_kargs["covariates_nl"] = dataset.covariates.float().cpu()
         train_kargs["l1_regularization_strength"] = l1_regularization_strength
         train_kargs["l2_regularization_strength"] = l2_regularization_strength
+        train_kargs["beta0_g_init"] = beta0_g_init.cpu()
         
         
         beta0_k1g_store = []
