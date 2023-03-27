@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import List, Optional, Tuple, Union, TYPE_CHECKING
 import numpy
+import numpy as np
 import pandas
 import copy
 import torch
@@ -1186,11 +1187,15 @@ class SparseImage:
         
         cat_raw = anndata.obsm[category_key]
 
+        
         assert isinstance(x_raw, numpy.ndarray)
         assert isinstance(y_raw, numpy.ndarray)
         assert isinstance(cat_raw, pandas.DataFrame)
         assert x_raw.shape[0] == y_raw.shape[0] == cat_raw.shape[0] and len(x_raw.shape) == 1
         
+        ## convert to float
+        x_raw = x_raw.astype(np.float)
+        y_raw = y_raw.astype(np.float)
 
         spot_dictionary = {
             "x_key": x_raw,
@@ -1247,19 +1252,35 @@ class SparseImage:
                 mean_dnn, median_dnn = cls._check_mean_median_spacing(torch.tensor(x_raw), torch.tensor(y_raw))
                 pixel_size = 0.25 * median_dnn
             
-            sparse_img_obj = cls(
-                spot_properties_dict=spot_dictionary,
-                x_key="x_key",
-                y_key="y_key",
-                category_key=category_key,
-                categories_to_codes=categories_to_channels,
-                pixel_size=pixel_size,
-                padding=padding,
-                patch_properties_dict=None,
-                image_properties_dict=None,
-                anndata=anndata,
-                sample_status = anndata.uns[status_key] ## double check; add try/except block for this
-            )
+            try: 
+                sparse_img_obj = cls(
+                    spot_properties_dict=spot_dictionary,
+                    x_key="x_key",
+                    y_key="y_key",
+                    category_key=category_key,
+                    categories_to_codes=categories_to_channels,
+                    pixel_size=pixel_size,
+                    padding=padding,
+                    patch_properties_dict=None,
+                    image_properties_dict=None,
+                    anndata=anndata,
+                    sample_status = anndata.uns[status_key] ## double check; 
+                )
+                
+            except KeyError:
+                sparse_img_obj = cls(
+                    spot_properties_dict=spot_dictionary,
+                    x_key="x_key",
+                    y_key="y_key",
+                    category_key=category_key,
+                    categories_to_codes=categories_to_channels,
+                    pixel_size=pixel_size,
+                    padding=padding,
+                    patch_properties_dict=None,
+                    image_properties_dict=None,
+                    anndata=anndata,
+                    sample_status = anndata.obs[status_key] ## double check; 
+                )
 
         return sparse_img_obj
 
