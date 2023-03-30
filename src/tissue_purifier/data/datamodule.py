@@ -662,7 +662,13 @@ class AnndataFolderDM(SparseSslDM):
     def get_metadata_to_classify(self, metadata) -> Dict[str, int]:
         """ Extract one or more quantities to classify from the metadata """
         if self._metadata_to_classify is None:
+<<<<<<< Updated upstream
             return {"tissue_label": self._all_filenames.index(metadata.f_name)}
+=======
+            #print('metadata.sample_status')
+            #print(metadata.sample_status)
+            return {"tissue_label": self._all_filenames.index(metadata.f_name), "sample_status": int(metadata.sample_status)} 
+>>>>>>> Stashed changes
         else:
             return self._metadata_to_classify(metadata)
 

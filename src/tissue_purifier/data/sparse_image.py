@@ -1163,6 +1163,7 @@ class SparseImage:
             if pixel_size is None:
                 mean_dnn, median_dnn = cls._check_mean_median_spacing(torch.tensor(x_raw), torch.tensor(y_raw))
                 pixel_size = 0.25 * median_dnn
+<<<<<<< Updated upstream
 
             sparse_img_obj = cls(
                 spot_properties_dict=spot_dictionary,
@@ -1176,6 +1177,38 @@ class SparseImage:
                 image_properties_dict=None,
                 anndata=anndata,
             )
+=======
+            
+            try: 
+                sparse_img_obj = cls(
+                    spot_properties_dict=spot_dictionary,
+                    x_key="x_key",
+                    y_key="y_key",
+                    category_key=category_key,
+                    categories_to_codes=categories_to_channels,
+                    pixel_size=pixel_size,
+                    padding=padding,
+                    patch_properties_dict=None,
+                    image_properties_dict=None,
+                    anndata=anndata,
+                    sample_status = anndata.uns[status_key] ## double check; 
+                )
+                
+            except KeyError:
+                sparse_img_obj = cls(
+                    spot_properties_dict=spot_dictionary,
+                    x_key="x_key",
+                    y_key="y_key",
+                    category_key=category_key,
+                    categories_to_codes=categories_to_channels,
+                    pixel_size=pixel_size,
+                    padding=padding,
+                    patch_properties_dict=None,
+                    image_properties_dict=None,
+                    anndata=anndata,
+                    sample_status = anndata.obs[status_key][0] ## double check; ##TODO: fix this later; assume that all status within obs are the same
+                )
+>>>>>>> Stashed changes
 
         return sparse_img_obj
 

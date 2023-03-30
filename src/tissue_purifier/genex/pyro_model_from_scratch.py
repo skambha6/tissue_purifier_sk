@@ -16,6 +16,7 @@ import pyro.poutine
 import pyro.optim
 import matplotlib.pyplot as plt
 from .gene_utils import GeneDataset
+from pyro.infer.autoguide import AutoDelta
 
 from pyro.distributions import Poisson
 
@@ -98,22 +99,15 @@ class GeneRegression:
         
         # Define the plates (i.e. conditional independence). It make sense to subsample only cells.
         cell_plate = pyro.plate("cells", size=n_cells, dim=-1, device=device, subsample_size=subsample_size_cells)
-        #cell_types_plate = pyro.plate("cell_types", size=k_cell_types, dim=-1, device=device)
         
         
         # Figure out a reasonable initialization for beta0_kg; initialize at zero for now
         ## initialize following nUMIs to encourage beta's to be 0 centered
-        #beta0_k1g = pyro.param("beta0", torch.zeros((k_cell_types,1,g_genes)))
-        beta0_k1g = pyro.param("beta0", beta0_g_init[None, None].expand(k_cell_types,1,g_genes).to(device))
+        beta0_k1g = pyro.param("beta0", torch.zeros((k_cell_types,1,g_genes)).to(device))
+        #beta0_k1g = pyro.param("beta0", beta0_g_init[None, None].expand(k_cell_types,1,g_genes).to(device))
         
         if self._use_covariates:
-            
-            #with cell_types_plate:
-                # default prior without regularization 
-                # (note the mask statement. This will always give log_prob and kl_divergence =0)
-            beta_prior = dist.Normal(loc=0, scale=0.1)
-            
-            
+                 
             assert not (l1_regularization_strength is not None and l2_regularization_strength is not None), \
                 "L1 + L2 regularization not supported currently"
             
@@ -176,29 +170,31 @@ class GeneRegression:
            subsample_size_cells: int,
            **kargs):
         
-        if self._use_covariates:
-            # Define the right device:
-            device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+        pass 
+#         if self._use_covariates:
+#             # Define the right device:
+#             device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+#             #device = torch.device("cpu")
 
-            # Define the plates (i.e. conditional independence). It make sense to subsample only cells.
-            #cell_plate = pyro.plate("cells", size=n_cells, dim=-1, device=device, subsample_size=subsample_size_cells)
-            #cell_types_plate = pyro.plate("cell_types", size=k_cell_types, dim=-1, device=device)
+#             # Define the plates (i.e. conditional independence). It make sense to subsample only cells.
+#             #cell_plate = pyro.plate("cells", size=n_cells, dim=-1, device=device, subsample_size=subsample_size_cells)
+#             #cell_types_plate = pyro.plate("cell_types", size=k_cell_types, dim=-1, device=device)
 
-            ## Look for MAP estimate of beta (delta distribution) with default prior (N(0, 
+#             ## Look for MAP estimate of beta (delta distribution) with default prior (N(0, 
 
-            #beta_param_loc_klg = pyro.param("beta_loc", dist.Normal(loc=0, scale=0.1).mask(False), device=device)
-            beta_param_loc_klg = pyro.param("beta", 0.1 * torch.randn((k_cell_types, l_cov, g_genes)))
+#             #beta_param_loc_klg = pyro.param("beta_loc", dist.Normal(loc=0, scale=0.1).mask(False), device=device)
+#             beta_param_loc_klg = pyro.param("beta", 0.1 * torch.randn((k_cell_types, l_cov, g_genes)).to(device))
 
-            #with cell_types_plate:
-            #pyro.sample("beta_cov", dist.Delta(v=beta_param_loc_klg).mask(False).to_event(3))
-            pyro.sample("beta_cov", dist.Delta(v=beta_param_loc_klg).to_event(3))
+#             #with cell_types_plate:
+#             #pyro.sample("beta_cov", dist.Delta(v=beta_param_loc_klg).mask(False).to_event(3))
+#             pyro.sample("beta_cov", dist.Delta(v=beta_param_loc_klg).to_event(3))
                 
-            # with cell_plate as ind_n:
-            #     beta_loc_sub_nlg = beta_param_loc_klg[ind_n]
-            #     pyro.sample("beta", dist.Delta(v=beta_loc_sub_nlg).to(device))
+#             # with cell_plate as ind_n:
+#             #     beta_loc_sub_nlg = beta_param_loc_klg[ind_n]
+#             #     pyro.sample("beta", dist.Delta(v=beta_loc_sub_nlg).to(device))
             
-        else:
-            pass
+#         else:
+#             pass
     
     @property
     def optimizer(self) -> pyro.optim.PyroOptim:
@@ -377,34 +373,82 @@ class GeneRegression:
         train_kargs["beta0_g_init"] = beta0_g_init.cpu()
         
         
-        beta0_k1g_store = []
-        beta_klg_store = []
+        #beta0_k1g_store = []
+        #beta_klg_store = []
         
         start_time = time.time()
-        svi = SVI(self._model, self._guide, self.optimizer, loss=Trace_ELBO())
+        
+        if self._use_covariates:
+            guide = AutoDelta(self._model)
+            svi = SVI(self._model, guide, self.optimizer, loss=Trace_ELBO())
+        else:
+            svi = SVI(self._model, self._guide, self.optimizer, loss=Trace_ELBO())
+            
+        
         for i in range(n_steps + 1):
             loss = svi.step(**train_kargs)
             self._loss_history.append(loss)
             if (i % print_frequency == 0):
                 print('[iter {}]  loss: {:.4f}'.format(i, loss))
             
-            beta0_k1g = pyro.get_param_store().get_param("beta0").float().detach().cpu()
-            beta0_k1g_store.append(beta0_k1g)
+            #beta0_k1g = pyro.param("beta0").float().detach().cpu()
+            
+            #beta0_k1g_store.append(beta0_k1g)
             
             # Change to set_param method
-            self._param_dict["beta0"] = beta0_k1g
+            self._param_dict["beta0"] = pyro.param("beta0")
             
             if self._use_covariates:
-                beta_klg = pyro.get_param_store().get_param("beta").float().detach().cpu()
-                beta_klg_store.append(beta_klg)
-                
-                self._param_dict["beta"] = beta_klg
+                #beta_klg = pyro.param("beta").float().detach().cpu()
+                #beta_klg_store.append(beta_klg[0,0,0])
+                    
+                self._param_dict["beta"] = pyro.param("AutoDelta.beta_cov")
             
         print("Training completed in {} seconds".format(time.time()-start_time))
         
-        return beta0_k1g_store, beta_klg_store
+        #return beta0_k1g_store, beta_klg_store
     
     
+    def save_ckpt(self, filename: str):
+        """
+        Save the full state of the model and optimizer to disk.
+        Use it in pair with :meth:`load_ckpt`.
+        Note:
+            Pyro saves unconstrained parameters and the constrain transformation.
+            This means that if you manually "look inside" the ckpt you will see strange values.
+            To get the actual value of the fitted parameter use the :meth:`get_params` method.
+        """
+        ckpt = {
+            "param_store": pyro.get_param_store().get_state(),
+            "optimizer": self._optimizer,
+            "optimizer_state": self._optimizer.get_state(),
+            "optimizer_initial_state": self._optimizer_initial_state,
+            "loss_history": self._loss_history,
+            "train_kargs": self._train_kargs,
+            "param_dict": self._param_dict
+        }
+
+        with open(filename, "wb") as output_file:
+            torch.save(ckpt, output_file)
+
+    def load_ckpt(self, filename: str, map_location=None):
+        """
+        Load the full state of the model and optimizer from disk.
+        Use it in pair with :meth:`save_ckpt`.
+        """
+
+        with open(filename, "rb") as input_file:
+            ckpt = torch.load(input_file, map_location)
+
+        pyro.clear_param_store()
+        pyro.get_param_store().set_state(ckpt["param_store"])
+        self._optimizer = ckpt["optimizer"]
+        self._optimizer.set_state(ckpt["optimizer_state"])
+        self._optimizer_initial_state = ckpt["optimizer_initial_state"]
+        self._loss_history = ckpt["loss_history"]
+        self._train_kargs = ckpt["train_kargs"]
+        self._param_dict = ckpt["param_dict"]
+        
     @torch.no_grad()
     def predict(self,
                 dataset: GeneDataset,
@@ -426,6 +470,7 @@ class GeneRegression:
     
         # prepare storage
         device_calculation = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
         pred_counts_ng = torch.zeros((n, g), dtype=torch.long, device=torch.device("cpu"))
         q_ng = torch.zeros((n, g), dtype=torch.float, device=torch.device("cpu"))
         
@@ -435,7 +480,7 @@ class GeneRegression:
         for n_left in range(0, n, subsample_size_cells):
             n_right = min(n_left + subsample_size_cells, n)
 
-            subn_cell_ids = cell_type_ids[n_left:n_right]
+            subn_cell_ids = cell_type_ids[n_left:n_right].to(device_calculation)
             subn_counts_ng = counts_ng[n_left:n_right]
             subn_total_umi_n1 = subn_counts_ng.sum(dim=-1, keepdim=True)
 
@@ -443,11 +488,15 @@ class GeneRegression:
  
             if self._use_covariates:
                 n, l = dataset.covariates.shape[:2]
-                covariates_nl1 = dataset.covariates.unsqueeze(dim=-1).float().cpu()
+                covariates_nl1 = dataset.covariates.unsqueeze(dim=-1).float().to(device_calculation)
+                
                 beta_klg = self._param_dict["beta"]
                 beta_nlg = beta_klg[subn_cell_ids]
                 
+
+                
                 subn_covariates_nl1 = covariates_nl1[n_left:n_right]
+                
                 log_rate_n1g = beta0_n1g + torch.sum(subn_covariates_nl1 *
                                                      beta_nlg,
                                                      dim=-2, keepdim=True)
@@ -475,7 +524,7 @@ class GeneRegression:
                 num_samples: int = 10,
                 subsample_size_cells: int = None,
                 gr_baseline = None) -> (pd.DataFrame, torch.tensor):
-
+        
 
         n, g = dataset.counts.shape[:2]
         k = dataset.k_cell_types
