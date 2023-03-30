@@ -1279,7 +1279,7 @@ class SparseImage:
                     patch_properties_dict=None,
                     image_properties_dict=None,
                     anndata=anndata,
-                    sample_status = anndata.obs[status_key] ## double check; 
+                    sample_status = anndata.obs[status_key][0] ## double check; ## assumes anndata.obs[status_key] is all the same
                 )
 
         return sparse_img_obj

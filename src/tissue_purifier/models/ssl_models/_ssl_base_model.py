@@ -351,9 +351,10 @@ class SslModelBase(LightningModule):
     The child classes need to implement :meth:`head_and_backbone_embeddings_step`, :meth:`forward` and
     :meth:`training_step`.
     """
-    def __init__(self, val_iomin_threshold: float):
+    def __init__(self, val_iomin_threshold: float, run_classify_regress: bool):
         super(SslModelBase, self).__init__()
         self.val_iomin_threshold = val_iomin_threshold
+        self.run_classify_regress = run_classify_regress
         self.neptune_run_id = None
 
     def head_and_backbone_embeddings_step(self, x) -> (torch.Tensor, torch.Tensor):
@@ -563,39 +564,40 @@ class SslModelBase(LightningModule):
                     self.logger.run["maps/" + key_tmp].log(file_tmp)
                 print("printed the embeddings")
 
-                # knn classification/regression
-                print("starting knn classification/regression")
-                df_mean_knn, df_std_knn = knn_classification_regression(world_dict, self.val_iomin_threshold)
-                # print("df_mean_knn ->", df_mean_knn)
+                if self.run_classify_regress:
+                    # knn classification/regression
+                    print("starting knn classification/regression")
+                    df_mean_knn, df_std_knn = knn_classification_regression(world_dict, self.val_iomin_threshold)
+                    # print("df_mean_knn ->", df_mean_knn)
 
-                for row in df_mean_knn.itertuples():
-                    for k, v in row._asdict().items():
-                        if isinstance(v, float) and numpy.isfinite(v):
-                            name = "kn/" + row.Index + "/" + k + "/mean"
-                            self.log(name=name, value=v, batch_size=1, rank_zero_only=True)
+                    for row in df_mean_knn.itertuples():
+                        for k, v in row._asdict().items():
+                            if isinstance(v, float) and numpy.isfinite(v):
+                                name = "kn/" + row.Index + "/" + k + "/mean"
+                                self.log(name=name, value=v, batch_size=1, rank_zero_only=True)
 
-                for row in df_std_knn.itertuples():
-                    for k, v in row._asdict().items():
-                        if isinstance(v, float) and numpy.isfinite(v):
-                            name = "kn/" + row.Index + "/" + k + "/std"
-                            self.log(name=name, value=v, batch_size=1, rank_zero_only=True)
+                    for row in df_std_knn.itertuples():
+                        for k, v in row._asdict().items():
+                            if isinstance(v, float) and numpy.isfinite(v):
+                                name = "kn/" + row.Index + "/" + k + "/std"
+                                self.log(name=name, value=v, batch_size=1, rank_zero_only=True)
 
-                # linear classification/regression
-                print("starting linear classification/regression")
-                df_mean_linear, df_std_linear = linear_classification_regression(world_dict, self.val_iomin_threshold)
-                # print("df_mean_linear ->", df_mean_linear)
+                    # linear classification/regression
+                    print("starting linear classification/regression")
+                    df_mean_linear, df_std_linear = linear_classification_regression(world_dict, self.val_iomin_threshold)
+                    # print("df_mean_linear ->", df_mean_linear)
 
-                for row in df_mean_linear.itertuples():
-                    for k, v in row._asdict().items():
-                        if isinstance(v, float) and numpy.isfinite(v):
-                            name = "linear/" + row.Index + "/" + k + "/mean"
-                            self.log(name=name, value=v, batch_size=1, rank_zero_only=True)
+                    for row in df_mean_linear.itertuples():
+                        for k, v in row._asdict().items():
+                            if isinstance(v, float) and numpy.isfinite(v):
+                                name = "linear/" + row.Index + "/" + k + "/mean"
+                                self.log(name=name, value=v, batch_size=1, rank_zero_only=True)
 
-                for row in df_std_linear.itertuples():
-                    for k, v in row._asdict().items():
-                        if isinstance(v, float) and numpy.isfinite(v):
-                            name = "linear/" + row.Index + "/" + k + "/std"
-                            self.log(name=name, value=v, batch_size=1, rank_zero_only=True)
+                    for row in df_std_linear.itertuples():
+                        for k, v in row._asdict().items():
+                            if isinstance(v, float) and numpy.isfinite(v):
+                                name = "linear/" + row.Index + "/" + k + "/std"
+                                self.log(name=name, value=v, batch_size=1, rank_zero_only=True)
 
     def optimizer_zero_grad(self, epoch, batch_idx, optimizer, optimizer_idx):
         optimizer.zero_grad(set_to_none=True)
