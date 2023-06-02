@@ -419,7 +419,18 @@ class SparseImage:
     @property
     def cat_raw(self) -> pandas.DataFrame:
         """ The categorical labels (gene-identities or cell-identities) from the original data """
+        for key in self._spot_properties_dict.keys():
+            try: 
+                self._spot_properties_dict[key] = self._spot_properties_dict[key].tolist()
+            except:
+                pass
         spot_properties_df = pandas.DataFrame(self._spot_properties_dict)
+        # try:
+        #     spot_properties_df = pandas.DataFrame(self._spot_properties_dict)
+        # except ValueError:
+        #     for key in self._spot_properties_dict.keys():
+        #         self._spot_properties_dict[key] = self._spot_properties_dict[key].tolist()
+        #     spot_properties_df = pandas.DataFrame(self._spot_properties_dict)
         return spot_properties_df[self._anndata.obsm[self._cat_key].columns]
 
     @property

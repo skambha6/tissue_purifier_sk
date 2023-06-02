@@ -522,8 +522,8 @@ class AnndataFolderDM(SparseSslDM):
             gpus: number of gpus to use for training.
             n_neighbours_moran: number of neighbours used to compute Moran's I score
             kargs: all these parameters will be passed to :class:`SparseSslDM`
-        """
-
+        """ 
+            
         assert isinstance(categories_to_channels, dict) and len(categories_to_channels.keys()) >= 1, \
             "Error. Specify a valid categories_to_channels mapping. Received {}".format(categories_to_channels)
 

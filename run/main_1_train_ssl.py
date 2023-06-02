@@ -132,6 +132,7 @@ def initialization(
     else:
         profiler = PassThroughProfiler()
 
+    
     if torch.cuda.device_count() == 0:
         # TODO:
         #   This is supposed to mimic a multi-gpu training on CPU for debugging purposes
@@ -162,6 +163,7 @@ def initialization(
         else:
             # everything else works with automatic differentiation. Set this to false for speed
             strategy = DDPPlugin(find_unused_parameters=False)
+            #strategy = "ddp"
 
     # monitor the learning rate. This will work both when manual or scheduler is used to change the learning rate.
     lr_monitor = LearningRateMonitor(logging_interval='epoch', log_momentum=True)
@@ -197,11 +199,12 @@ def initialization(
         every_n_epochs=0,
     )
     ckpt_train_end.CHECKPOINT_NAME_LAST = 'my_checkpoint_last'  # the extension .ckpt will be added automatically
-
+    
     pl_trainer = Trainer(
         weights_save_path="saved_ckpt",
         profiler=profiler,
         num_nodes=num_processes,  # number of different machines, FOr us this is 1
+        #num_nodes=2, ## more nodes for distributed training ##TODO: set this automatically to machine specs
         accelerator='gpu',#accelerator,
         gpus=new_dict["gpus"],
         check_val_every_n_epoch=new_dict["check_val_every_n_epoch"],
