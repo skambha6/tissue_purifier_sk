@@ -17,8 +17,11 @@ import pyro.optim
 import matplotlib.pyplot as plt
 from .gene_utils import GeneDataset
 from pyro.infer.autoguide import AutoDelta
+from pyro.infer.autoguide.initialization import init_to_mean
 
 from pyro.distributions import Poisson
+
+import pickle
 
 class GeneRegression:
     """
@@ -92,7 +95,7 @@ class GeneRegression:
            subsample_size_cells: int,
            **kargs):
         
-        ## regularization parameters do nothing if GR doesn't have self._use_covariates = True
+        ## regularization parameters do nothing if GR has self._use_covariates = False
         
         # Define the right device:
         device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -103,8 +106,12 @@ class GeneRegression:
         
         # Figure out a reasonable initialization for beta0_kg; initialize at zero for now
         ## initialize following nUMIs to encourage beta's to be 0 centered
-        beta0_k1g = pyro.param("beta0", torch.zeros((k_cell_types,1,g_genes)).to(device))
-        #beta0_k1g = pyro.param("beta0", beta0_g_init[None, None].expand(k_cell_types,1,g_genes).to(device))
+        # beta0_k1g = pyro.param("beta0", torch.zeros((k_cell_types,1,g_genes)).to(device))
+        
+        beta0_k1g = pyro.param("beta0", beta0_g_init[None, None].expand(k_cell_types,1,g_genes).to(device))
+        
+        # beta0_k1g_init = torch.unsqueeze(beta0_kg_init,-2)
+        # beta0_k1g = pyro.param("beta0", beta0_k1g_init.to(device))
         
         if self._use_covariates:
                  
@@ -150,6 +157,8 @@ class GeneRegression:
                 assert beta0_sub_n1g.shape[-1] != 1
                 
                 log_mu_sub_ng = beta0_sub_n1g.squeeze() ##assume n / g aren't 1
+                
+            # print(log_mu_sub_ng)
                 
             return pyro.sample("counts",
                 Poisson(rate=total_umi_sub_n1*(log_mu_sub_ng.exp())).to_event(1),
@@ -354,10 +363,21 @@ class GeneRegression:
         total_umi_n = counts_ng.sum(dim=-1)
         
         # Figure out a good initialization for beta0 based on: counts = total_umi * beta0.exp()
-        ## initialize in cell-type specific manner?
+        # initialize in cell-type specific manner?
         fraction_ng = counts_ng / total_umi_n.view(-1, 1)
         tmp_g = fraction_ng.mean(dim=0).log()
         beta0_g_init = torch.where(torch.isfinite(tmp_g), tmp_g, torch.zeros_like(tmp_g))  # remove nan if Any
+        
+        ## kg init
+#         fraction_ng = counts_ng / total_umi_n.view(-1, 1)
+        
+#         k = dataset.k_cell_types
+#         g = counts_ng.shape[1]
+#         tmp_kg = torch.zeros((k,g))
+#         for i in range(k):
+#             tmp_kg[i] = fraction_ng[cell_type_ids == i].mean(dim=0).log()
+            
+#         beta0_kg_init = torch.where(torch.isfinite(tmp_kg), tmp_kg, torch.zeros_like(tmp_kg))  # remove nan if Any
         
         # Prepare arguments for training
         train_kargs["n_cells"] = counts_ng.shape[0]
@@ -373,13 +393,14 @@ class GeneRegression:
         train_kargs["beta0_g_init"] = beta0_g_init.cpu()
         
         
-        #beta0_k1g_store = []
-        #beta_klg_store = []
+        beta0_k1g_store = []
+        beta_klg_store = []
         
         start_time = time.time()
         
         if self._use_covariates:
-            guide = AutoDelta(self._model)
+            #guide = AutoDelta(self._model)
+            guide = AutoDelta(self._model, init_loc_fn = init_to_mean())
             svi = SVI(self._model, guide, self.optimizer, loss=Trace_ELBO())
         else:
             svi = SVI(self._model, self._guide, self.optimizer, loss=Trace_ELBO())
@@ -391,22 +412,21 @@ class GeneRegression:
             if (i % print_frequency == 0):
                 print('[iter {}]  loss: {:.4f}'.format(i, loss))
             
-            #beta0_k1g = pyro.param("beta0").float().detach().cpu()
+            beta0_k1g = pyro.param("beta0").float().detach().cpu()
             
-            #beta0_k1g_store.append(beta0_k1g)
+            beta0_k1g_store.append(beta0_k1g[0,0,0])
             
             # Change to set_param method
             self._param_dict["beta0"] = pyro.param("beta0")
             
             if self._use_covariates:
-                #beta_klg = pyro.param("beta").float().detach().cpu()
-                #beta_klg_store.append(beta_klg[0,0,0])
                     
                 self._param_dict["beta"] = pyro.param("AutoDelta.beta_cov")
+                beta_klg_store.append(self._param_dict["beta"][0,0,0].float().detach().cpu())
             
         print("Training completed in {} seconds".format(time.time()-start_time))
         
-        #return beta0_k1g_store, beta_klg_store
+        return beta0_k1g_store, beta_klg_store
     
     
     def save_ckpt(self, filename: str):
@@ -466,8 +486,6 @@ class GeneRegression:
         counts_ng = dataset.counts.long().cpu()
         cell_type_ids = dataset.cell_type_ids.long().cpu()
         
-        
-    
         # prepare storage
         device_calculation = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
@@ -492,8 +510,6 @@ class GeneRegression:
                 
                 beta_klg = self._param_dict["beta"]
                 beta_nlg = beta_klg[subn_cell_ids]
-                
-
                 
                 subn_covariates_nl1 = covariates_nl1[n_left:n_right]
                 

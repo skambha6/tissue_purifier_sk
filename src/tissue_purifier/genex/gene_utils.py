@@ -123,7 +123,9 @@ def make_gene_dataset_from_anndata(
 
     assert counts_ng.shape[0] == covariates_nl_raw.shape[0] == cell_type_ids_n.shape[0]
 
-    k_cell_types = cell_type_ids_n.max().item() + 1  # +1 b/c ids start from zero
+    ## do this based on shape of cell_type_proportions instead
+    #k_cell_types = cell_type_ids_n.max().item() + 1  # +1 b/c ids start from zero
+    k_cell_types = cell_type_props.shape[1]
 
     if apply_pca:
         new_covariate = SmartPca(preprocess_strategy=preprocess_strategy).fit_transform(data=covariates_nl_raw,
@@ -132,7 +134,7 @@ def make_gene_dataset_from_anndata(
         std, mean = torch.std_mean(covariates_nl_raw, dim=-2, unbiased=True, keepdim=True)
         mask = (std == 0.0)
         std[mask] = 1.0
-        new_covariate = (covariates_nl_raw - mean) / std
+        new_covariate = (covariates_nl_raw - mdean) / std
     elif preprocess_strategy == 'center':
         mean = torch.mean(covariates_nl_raw, dim=-2, keepdim=True)
         new_covariate = covariates_nl_raw - mean
@@ -150,7 +152,6 @@ def make_gene_dataset_from_anndata(
         cell_type_mapping=mapping_dict,
         gene_names=list(anndata.var_names),
     )
-
 
 def train_test_val_split(
         data: Union[List[torch.Tensor], List[numpy.ndarray], GeneDataset],
