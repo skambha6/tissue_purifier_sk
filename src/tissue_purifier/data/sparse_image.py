@@ -573,6 +573,7 @@ class SparseImage:
             return color
 
         dense_img = self.to_dense().unsqueeze(dim=0).float()  # shape: (1, ch, width, height)
+        print(ch)
         ch = dense_img.shape[-3]
         weight = _make_kernel(spot_size).expand(ch, 1, -1, -1)
 
@@ -613,6 +614,100 @@ class SparseImage:
             cbar = fig.colorbar(scalar_mappable, ticks=numpy.arange(ch), ax=ax)
             legend_colorbar = list(self._categories_to_codes.keys())
             cbar.ax.set_yticklabels(legend_colorbar)
+        plt.close()
+
+        return rgb_img, fig
+    
+    
+    def to_rgb_image_property(self,
+               image_property_key: str = None,
+               spot_size: float = 1.0,
+               cmap: matplotlib.colors.ListedColormap = None,
+               figsize: Tuple = (8, 8),
+               show_colorbar: bool = True,
+               contrast: float = 1.0) -> (torch.Tensor, plt.Figure):
+        """
+        Make a 3 channel RGB image from a property from image properties dict.
+
+        Args:
+            image_property_key: which key in spot properties dict to visualize 
+            spot_size: size of sigma of gaussian kernel for rendering the spots
+            cmap: the colormap to use
+            figsize: the size of the figure
+            show_colorbar: If True show the colorbar
+            contrast: change to increase/decrease the contrast in the figure.
+                It does not affect the returned tensor. It changes only the way to figure is displayed.
+
+        Returns:
+            dense_img: A torch.Tensor of size :math:`(3, W, H)` with the rgb rendering of the image
+            fig: matplotlib figure.
+        """
+
+        def _make_kernel(_sigma: float):
+            n = int(1 + 2 * numpy.ceil(4.0 * _sigma))
+            dx_over_sigma = torch.linspace(-4.0, 4.0, 2 * n + 1).view(-1, 1)
+            dy_over_sigma = dx_over_sigma.clone().permute(1, 0)
+            d2_over_sigma2 = (dx_over_sigma.pow(2) + dy_over_sigma.pow(2)).float()
+            kernel = torch.exp(-0.5 * d2_over_sigma2)
+            return kernel
+
+        def _get_color_tensor(_cmap, _ch):
+            if _cmap is None:
+                # cm = cc.cm.glasbey_bw_minc_20
+                cm = plt.get_cmap('tab20', _ch)
+                x = numpy.arange(_ch)
+                colors_np = cm(x)
+            else:
+                cm = plt.get_cmap(_cmap, _ch)
+                x = numpy.linspace(0.0, 1.0, _ch)
+                colors_np = cm(x)
+
+            color = torch.Tensor(colors_np)[:, :3]
+            assert color.shape[0] == _ch
+            return color
+
+        #dense_img = self.to_dense().unsqueeze(dim=0).float()  
+        dense_img = torch.tensor(self._image_properties_dict[image_property_key]).unsqueeze(dim=0).unsqueeze(dim=0) # shape: (1, ch=1, width, height)
+        ch = dense_img.shape[-3]
+        weight = _make_kernel(spot_size).expand(ch, 1, -1, -1)
+
+        if torch.cuda.is_available():
+            dense_img = dense_img.cuda()
+            weight = weight.cuda()
+
+        dense_rasterized_img = F.conv2d(
+            input=dense_img,
+            weight=weight,
+            bias=None,
+            stride=1,
+            padding=(weight.shape[-1] - 1) // 2,
+            dilation=1,
+            groups=ch,
+        ).squeeze(dim=0)
+
+        colors = _get_color_tensor(cmap, ch).float().to(dense_rasterized_img.device)
+        rgb_img = torch.einsum("cwh,cn -> nwh", dense_rasterized_img, colors)
+        in_range_min, in_range_max = torch.min(rgb_img), torch.max(rgb_img)
+        dist = in_range_max - in_range_min
+        scale = 1.0 if dist == 0.0 else 1.0 / dist
+        rgb_img.add_(other=in_range_min, alpha=-1.0).mul_(other=scale).clamp_(min=0.0, max=1.0)
+        rgb_img = rgb_img.detach().cpu()
+
+        # make the figure
+        fig, ax = plt.subplots(figsize=figsize)
+        _ = ax.imshow((rgb_img.permute(1, 2, 0)*contrast).clamp(min=0.0, max=1.0))
+
+        if show_colorbar:
+            discrete_cmp = matplotlib.colors.ListedColormap(colors.cpu().numpy())
+            normalizer = matplotlib.colors.BoundaryNorm(
+                boundaries=numpy.linspace(-0.5, ch - 0.5, ch + 1),
+                ncolors=ch+8,
+                clip=True)
+
+            scalar_mappable = matplotlib.cm.ScalarMappable(norm=normalizer, cmap=discrete_cmp)
+            cbar = fig.colorbar(scalar_mappable, ticks=numpy.arange(ch), ax=ax)
+            legend_colorbar = image_property_key
+            cbar.set_label(legend_colorbar)
         plt.close()
 
         return rgb_img, fig
@@ -1080,6 +1175,75 @@ class SparseImage:
 
             self.write_to_spot_dictionary(key=key, values=interpolated_values.permute(dims=(1, 0)), overwrite=overwrite)
 
+    ### TODO: double-check this function
+    def transfer_spot_to_image(
+            self,
+            keys_to_transfer: List[str],
+            overwrite: bool = False,
+            verbose: bool = False,
+            strategy: str = "bilinear"):
+        """
+        Evaluate the image_properties_dict at the spots location.
+        Store the results in the image_properties_dict under the same name.
+
+        Args:
+            keys_to_transfer: the keys of the quantity to transfer from spot_properties_dict to image_properties_dict.
+            overwrite: bool, in case of collision between the keys this variable controls
+                when the value will be overwritten.
+            verbose: bool, if true intermediate messages are displayed.
+            strategy: str, either 'closest' or 'bilinear' (default). This described the interpolation method.
+        """
+        # make sure keys_to_transfer is provided as a list
+        if isinstance(keys_to_transfer, str):
+            keys_to_transfer = [keys_to_transfer]
+        assert isinstance(keys_to_transfer, list), \
+            "Error. keys_to_transfer must be a list. Received {0}".format(type(keys_to_transfer))
+
+        assert set(keys_to_transfer).issubset(set(self._spot_properties_dict.keys())), \
+            "Some keys are not present in self.spot_properties_dict"
+
+        # actual calculation
+        
+        ## get width and height
+        for key in keys_to_transfer:
+            if verbose:
+                print("working on ->", key)
+            spot_quantity = self.read_from_spot_dictionary(key=key)
+
+            
+            assert isinstance(spot_quantity, torch.Tensor)
+            #assert len(spot_quantity.shape) == 3 and spot_quantity.shape[-2:] == self.shape[-2:]
+
+            x_raw = torch.from_numpy(self.x_raw).float()
+            y_raw = torch.from_numpy(self.y_raw).float()
+            x_pixel, y_pixel = self.raw_to_pixel(x_raw=x_raw, y_raw=y_raw)
+            
+            # Convert the coordinates and round to the closest integer
+
+            ix = torch.round(x_pixel).long()
+            iy = torch.round(y_pixel).long()
+
+            # Create a sparse array with 1 in the correct channel and x,y location.
+            # The coalesce make sure that if in case of a collision the values are summed.
+            padding = self._padding
+            dense_shape = (
+                torch.max(ix).item() + 1 + 2 * padding,
+                torch.max(iy).item() + 1 + 2 * padding
+            )
+            
+            assert len(spot_quantity.shape) == 1, \
+                "Key to transfer must be 1-D"
+            
+            result = torch.sparse_coo_tensor(
+                indices=torch.stack((x_pixel, y_pixel)),
+                values=spot_quantity,
+                size=dense_shape,
+                #device=,
+                requires_grad=False,
+                ).coalesce().to_dense()
+
+            self.write_to_image_dictionary(key=key, values=result, overwrite=overwrite)
+    
     def get_state_dict(self, include_anndata: bool = True) -> dict:
         """
         Get a dictionary with the state of the system
