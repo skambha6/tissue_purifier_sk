@@ -95,7 +95,6 @@ class SparseImage:
         assert x_raw.shape[0] == y_raw.shape[0] == cat_raw.shape[0] and len(x_raw.shape) == 1, \
             "Error. x_raw, y_raw, cat_raw must be 1D array of the same length"
 
-
         # Check all category keys are included in categories_to_code
         
         assert set(cat_raw.columns).issubset(set(self._categories_to_codes.keys())), \
@@ -419,19 +418,25 @@ class SparseImage:
     @property
     def cat_raw(self) -> pandas.DataFrame:
         """ The categorical labels (gene-identities or cell-identities) from the original data """
+
+        cat_raw_dict = {}
         for key in self._spot_properties_dict.keys():
-            try: 
-                self._spot_properties_dict[key] = self._spot_properties_dict[key].tolist()
-            except:
-                pass
-        spot_properties_df = pandas.DataFrame(self._spot_properties_dict)
+            ## if key is a cell type we are mapping
+            if key in self._anndata.obsm[self._cat_key].columns:
+                try: 
+                    #self._spot_properties_dict[key] = self._spot_properties_dict[key].tolist() ## TODO: check if commenting this out affects other code
+                    cat_raw_dict[key] = self._spot_properties_dict[key].tolist()
+                except:
+                    cat_raw_dict[key] = self._spot_properties_dict[key]
+            
+        cat_raw_df = pandas.DataFrame.from_dict(cat_raw_dict)  
         # try:
         #     spot_properties_df = pandas.DataFrame(self._spot_properties_dict)
         # except ValueError:
         #     for key in self._spot_properties_dict.keys():
         #         self._spot_properties_dict[key] = self._spot_properties_dict[key].tolist()
         #     spot_properties_df = pandas.DataFrame(self._spot_properties_dict)
-        return spot_properties_df[self._anndata.obsm[self._cat_key].columns]
+        return cat_raw_df
 
     @property
     def n_spots(self) -> int:
@@ -700,7 +705,7 @@ class SparseImage:
         
         #cat_raw = self.cat_raw
         #codes = torch.tensor([self.cat_raw[cat] for cat in self.cat_raw]).long()
-        codes_vals = torch.tensor(self.cat_raw.to_numpy())
+        codes_vals = torch.tensor(self.cat_raw.to_numpy()).cpu()
 
         cell_types_one_hot = numpy.zeros_like(codes_vals)
         max_assignment = numpy.argmax(codes_vals, axis = 1)
