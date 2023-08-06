@@ -32,6 +32,8 @@ def classify_and_regress(
         classifier: "sklearn_like_classifier" = None,
         n_splits: int = 5,
         n_repeats: int = 1,
+        return_regressor: bool = False,
+        return_classifier: bool = False,
         verbose: bool = False) -> [pandas.DataFrame, pandas.DataFrame]:
     """
     Train a Classifier and a Regressor to use some features to classify/predict other annotations.
@@ -176,6 +178,11 @@ def classify_and_regress(
                 tmp_df = _do_regression(X_all, y_all, x_key=feature_key, y_key=kr)
                 df = tmp_df if df is None else df.merge(tmp_df, how='outer')
 
+    if return_regressor:
+        return df, regressor
+    if return_classifier:
+        return df, classifier
+    
     return df
 
 

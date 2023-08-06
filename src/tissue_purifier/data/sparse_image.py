@@ -573,7 +573,6 @@ class SparseImage:
             return color
 
         dense_img = self.to_dense().unsqueeze(dim=0).float()  # shape: (1, ch, width, height)
-        print(ch)
         ch = dense_img.shape[-3]
         weight = _make_kernel(spot_size).expand(ch, 1, -1, -1)
 
@@ -653,9 +652,11 @@ class SparseImage:
 
         def _get_color_tensor(_cmap, _ch):
             if _cmap is None:
+                # import colorcet as cc
                 # cm = cc.cm.glasbey_bw_minc_20
-                cm = plt.get_cmap('tab20', _ch)
+                cm = plt.get_cmap('tab20')
                 x = numpy.arange(_ch)
+                # x = np.arange(-100, 100)
                 colors_np = cm(x)
             else:
                 cm = plt.get_cmap(_cmap, _ch)
@@ -664,13 +665,31 @@ class SparseImage:
 
             color = torch.Tensor(colors_np)[:, :3]
             assert color.shape[0] == _ch
+            
             return color
 
         #dense_img = self.to_dense().unsqueeze(dim=0).float()  
         dense_img = torch.tensor(self._image_properties_dict[image_property_key]).unsqueeze(dim=0).unsqueeze(dim=0) # shape: (1, ch=1, width, height)
+        
+        ## assert dense_img is b/w 0 and 1
+        
+#         import matplotlib.colors as mcolors
+        
+#         # convert img property to 0-1 range to pass into colormap
+#         dense_img_flat = dense_img.flatten()
+#         norm = mcolors.Normalize(vmin = min(dense_img_flat), vmax = max(dense_img_flat), clip=True)
+#         dense_img_flat_norm = norm(dense_img_flat)
+        
+#         dense_img = torch.tensor(dense_img_flat_norm.reshape(dense_img.shape))
+#         print(dense_img.shape)
+        
+
         ch = dense_img.shape[-3]
         weight = _make_kernel(spot_size).expand(ch, 1, -1, -1)
 
+        print(dense_img)
+
+    
         if torch.cuda.is_available():
             dense_img = dense_img.cuda()
             weight = weight.cuda()
@@ -685,27 +704,41 @@ class SparseImage:
             groups=ch,
         ).squeeze(dim=0)
 
-        colors = _get_color_tensor(cmap, ch).float().to(dense_rasterized_img.device)
-        rgb_img = torch.einsum("cwh,cn -> nwh", dense_rasterized_img, colors)
+        # colors = _get_color_tensor(cmap, ch).float().to(dense_rasterized_img.device)
+        # print(dense_rasterized_img.shape)
+        # print(colors.shape)
+        # #rgb_img = torch.einsum("cwh,cn -> nwh", dense_rasterized_img, colors)
+        # rgb_img = torch.einsum("wh,c->cwh", dense_rasterized_img.squeeze(), colors.squeeze())
+        
+        cm = plt.get_cmap('tab20')
+        # cm expects 2D array as input 
+        print("reached")
+        print(dense_rasterized_img.shape)
+        rgb_img = torch.tensor(cm(dense_rasterized_img.squeeze().cpu()))        
+        #rgb_img = dense_rasterized_img
+        
         in_range_min, in_range_max = torch.min(rgb_img), torch.max(rgb_img)
         dist = in_range_max - in_range_min
         scale = 1.0 if dist == 0.0 else 1.0 / dist
         rgb_img.add_(other=in_range_min, alpha=-1.0).mul_(other=scale).clamp_(min=0.0, max=1.0)
         rgb_img = rgb_img.detach().cpu()
 
+        rgb_img = rgb_img[:,:,:3].permute(2,0,1)
+        
         # make the figure
         fig, ax = plt.subplots(figsize=figsize)
-        _ = ax.imshow((rgb_img.permute(1, 2, 0)*contrast).clamp(min=0.0, max=1.0))
-
+        im = ax.imshow((rgb_img.permute(1, 2, 0)*contrast).clamp(min=0.0, max=1.0))
+        
         if show_colorbar:
-            discrete_cmp = matplotlib.colors.ListedColormap(colors.cpu().numpy())
+            discrete_cmp = matplotlib.colors.ListedColormap(cm.colors) #colors.cpu().numpy())
             normalizer = matplotlib.colors.BoundaryNorm(
                 boundaries=numpy.linspace(-0.5, ch - 0.5, ch + 1),
                 ncolors=ch+8,
                 clip=True)
 
             scalar_mappable = matplotlib.cm.ScalarMappable(norm=normalizer, cmap=discrete_cmp)
-            cbar = fig.colorbar(scalar_mappable, ticks=numpy.arange(ch), ax=ax)
+            #cbar = fig.colorbar(scalar_mappable, ticks=numpy.arange(0,1,0.1), ax=ax)
+            cbar = fig.colorbar(im, ticks=numpy.arange(0,1,0.1), ax=ax)
             legend_colorbar = image_property_key
             cbar.set_label(legend_colorbar)
         plt.close()
