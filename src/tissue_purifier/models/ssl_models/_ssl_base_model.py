@@ -32,6 +32,8 @@ def classify_and_regress(
         classifier: "sklearn_like_classifier" = None,
         n_splits: int = 5,
         n_repeats: int = 1,
+        return_regressor: bool = False,
+        return_classifier: bool = False,
         verbose: bool = False) -> [pandas.DataFrame, pandas.DataFrame]:
     """
     Train a Classifier and a Regressor to use some features to classify/predict other annotations.
@@ -176,6 +178,11 @@ def classify_and_regress(
                 tmp_df = _do_regression(X_all, y_all, x_key=feature_key, y_key=kr)
                 df = tmp_df if df is None else df.merge(tmp_df, how='outer')
 
+    if return_regressor:
+        return df, regressor
+    if return_classifier:
+        return df, classifier
+    
     return df
 
 
@@ -236,7 +243,8 @@ def knn_classification_regression(world_dict: dict, val_iomin_threshold: float):
 
     # loop over subset made of non-overlapping patches
     df_tot = None
-    for n in range(20):
+    for n in range(10): #range(20): #oom error
+        
         # create a dictionary with only non-overlapping patches to test kn-regressor/classifier
         nms_mask_n = NonMaxSuppression.perform_nms_selection(mask_overlap_nn=binarized_overlap_nn,
                                                              score_n=torch.rand_like(initial_score),
@@ -311,7 +319,7 @@ def linear_classification_regression(world_dict: dict, val_iomin_threshold: floa
 
     # loop over subset made of non-overlapping patches
     df_tot = None
-    for n in range(20):
+    for n in range(10): #range(20): # oom error
         # create a dictionary with only non-overlapping patches to test kn-regressor/classifier
         nms_mask_n = NonMaxSuppression.perform_nms_selection(mask_overlap_nn=binarized_overlap_nn,
                                                              score_n=torch.rand_like(initial_score),
@@ -337,6 +345,12 @@ def linear_classification_regression(world_dict: dict, val_iomin_threshold: floa
     return df_mean, df_std
 
 
+# ## do this for overlapping vs non-overlapping patches
+# def plot_clusters_spatially(world_dict: dict, val_iomin_threshold: float):
+    
+    
+
+
 class SslModelBase(LightningModule):
     """
     Base class for the self-supervised learning (ssl) models (Vae, Dino, Barlow, Simclr).
@@ -344,9 +358,10 @@ class SslModelBase(LightningModule):
     The child classes need to implement :meth:`head_and_backbone_embeddings_step`, :meth:`forward` and
     :meth:`training_step`.
     """
-    def __init__(self, val_iomin_threshold: float):
+    def __init__(self, val_iomin_threshold: float, run_classify_regress: bool):
         super(SslModelBase, self).__init__()
         self.val_iomin_threshold = val_iomin_threshold
+        self.run_classify_regress = run_classify_regress
         self.neptune_run_id = None
 
     def head_and_backbone_embeddings_step(self, x) -> (torch.Tensor, torch.Tensor):
@@ -462,10 +477,12 @@ class SslModelBase(LightningModule):
             "features_head": z,
             "patches_xywh": patches_xywh
         }
-
+        
+            
         # Add to this dictionary the things I want to classify and regress
         dict_classify = concatenate_list_of_dict([self.get_metadata_to_classify(metadata)
                                                   for metadata in list_metadata])
+        
         for k, v in dict_classify.items():
             val_dict["classify_"+k] = torch.tensor(v, device=self.device)
 
@@ -512,6 +529,10 @@ class SslModelBase(LightningModule):
                 annotation_keys = []
                 umap_keys = []
                 all_keys = list(world_dict.keys())
+                
+                print("all keys:")
+                print(all_keys)
+                
                 for k in all_keys:
                     if k.startswith("feature"):
                         embedding_keys.append(k)
@@ -528,6 +549,7 @@ class SslModelBase(LightningModule):
 
                 print("starting to make umaps")
                 all_files = []
+                
                 for umap_key in umap_keys:
                     fig_tmp = plot_embeddings(
                         input_dictionary=world_dict,
@@ -538,45 +560,51 @@ class SslModelBase(LightningModule):
                     )
                     all_files.append(File.as_image(fig_tmp))
                 print("done making umaps")
+                
+                print(embedding_keys)
+                print(annotation_keys)
+                print(umap_keys)
+                print(all_keys)
 
                 print("starting to log the umaps")
                 for file_tmp, key_tmp in zip(all_files, embedding_keys):
                     self.logger.run["maps/" + key_tmp].log(file_tmp)
                 print("printed the embeddings")
 
-                # knn classification/regression
-                print("starting knn classification/regression")
-                df_mean_knn, df_std_knn = knn_classification_regression(world_dict, self.val_iomin_threshold)
-                # print("df_mean_knn ->", df_mean_knn)
+                if self.run_classify_regress:
+                    # knn classification/regression
+                    print("starting knn classification/regression")
+                    df_mean_knn, df_std_knn = knn_classification_regression(world_dict, self.val_iomin_threshold)
+                    # print("df_mean_knn ->", df_mean_knn)
 
-                for row in df_mean_knn.itertuples():
-                    for k, v in row._asdict().items():
-                        if isinstance(v, float) and numpy.isfinite(v):
-                            name = "kn/" + row.Index + "/" + k + "/mean"
-                            self.log(name=name, value=v, batch_size=1, rank_zero_only=True)
+                    for row in df_mean_knn.itertuples():
+                        for k, v in row._asdict().items():
+                            if isinstance(v, float) and numpy.isfinite(v):
+                                name = "kn/" + row.Index + "/" + k + "/mean"
+                                self.log(name=name, value=v, batch_size=1, rank_zero_only=True)
 
-                for row in df_std_knn.itertuples():
-                    for k, v in row._asdict().items():
-                        if isinstance(v, float) and numpy.isfinite(v):
-                            name = "kn/" + row.Index + "/" + k + "/std"
-                            self.log(name=name, value=v, batch_size=1, rank_zero_only=True)
+                    for row in df_std_knn.itertuples():
+                        for k, v in row._asdict().items():
+                            if isinstance(v, float) and numpy.isfinite(v):
+                                name = "kn/" + row.Index + "/" + k + "/std"
+                                self.log(name=name, value=v, batch_size=1, rank_zero_only=True)
 
-                # linear classification/regression
-                print("starting linear classification/regression")
-                df_mean_linear, df_std_linear = linear_classification_regression(world_dict, self.val_iomin_threshold)
-                # print("df_mean_linear ->", df_mean_linear)
+                    # linear classification/regression
+                    print("starting linear classification/regression")
+                    df_mean_linear, df_std_linear = linear_classification_regression(world_dict, self.val_iomin_threshold)
+                    # print("df_mean_linear ->", df_mean_linear)
 
-                for row in df_mean_linear.itertuples():
-                    for k, v in row._asdict().items():
-                        if isinstance(v, float) and numpy.isfinite(v):
-                            name = "linear/" + row.Index + "/" + k + "/mean"
-                            self.log(name=name, value=v, batch_size=1, rank_zero_only=True)
+                    for row in df_mean_linear.itertuples():
+                        for k, v in row._asdict().items():
+                            if isinstance(v, float) and numpy.isfinite(v):
+                                name = "linear/" + row.Index + "/" + k + "/mean"
+                                self.log(name=name, value=v, batch_size=1, rank_zero_only=True)
 
-                for row in df_std_linear.itertuples():
-                    for k, v in row._asdict().items():
-                        if isinstance(v, float) and numpy.isfinite(v):
-                            name = "linear/" + row.Index + "/" + k + "/std"
-                            self.log(name=name, value=v, batch_size=1, rank_zero_only=True)
+                    for row in df_std_linear.itertuples():
+                        for k, v in row._asdict().items():
+                            if isinstance(v, float) and numpy.isfinite(v):
+                                name = "linear/" + row.Index + "/" + k + "/std"
+                                self.log(name=name, value=v, batch_size=1, rank_zero_only=True)
 
     def optimizer_zero_grad(self, epoch, batch_idx, optimizer, optimizer_idx):
         optimizer.zero_grad(set_to_none=True)

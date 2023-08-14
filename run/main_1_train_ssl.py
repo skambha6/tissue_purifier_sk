@@ -68,7 +68,7 @@ def initialization(
     else:
         ckpt_file_for_trainer = None
 
-    # Ridefine the model
+    # Redefine the model
     if config_dict["ssl_model"] == "barlow":
         Model = Barlow
     elif config_dict["ssl_model"] == "dino":
@@ -122,7 +122,7 @@ def initialization(
         mode="async" if config_dict.get("remote_logging", False) else "offline",
         tags=[str(config_dict.get("ssl_model", "unknown_model"))],
         source_files=["*.py", "*.yaml"],
-        fail_on_exception=True,  # it does not good if you are not logging anything but simulation keeps going
+        fail_on_exception=True  # it does not good if you are not logging anything but simulation keeps going,
     )
 
     if new_dict["profiler"] == 'advanced':
@@ -132,6 +132,7 @@ def initialization(
     else:
         profiler = PassThroughProfiler()
 
+    
     if torch.cuda.device_count() == 0:
         # TODO:
         #   This is supposed to mimic a multi-gpu training on CPU for debugging purposes
@@ -162,6 +163,7 @@ def initialization(
         else:
             # everything else works with automatic differentiation. Set this to false for speed
             strategy = DDPPlugin(find_unused_parameters=False)
+            #strategy = "ddp"
 
     # monitor the learning rate. This will work both when manual or scheduler is used to change the learning rate.
     lr_monitor = LearningRateMonitor(logging_interval='epoch', log_momentum=True)
@@ -197,12 +199,13 @@ def initialization(
         every_n_epochs=0,
     )
     ckpt_train_end.CHECKPOINT_NAME_LAST = 'my_checkpoint_last'  # the extension .ckpt will be added automatically
-
+    
     pl_trainer = Trainer(
         weights_save_path="saved_ckpt",
         profiler=profiler,
         num_nodes=num_processes,  # number of different machines, FOr us this is 1
-        accelerator=accelerator,
+        #num_nodes=2, ## more nodes for distributed training ##TODO: set this automatically to machine specs
+        accelerator='gpu',#accelerator,
         gpus=new_dict["gpus"],
         check_val_every_n_epoch=new_dict["check_val_every_n_epoch"],
         callbacks=[ckpt_train_end, ckpt_train_interval, ckpt_save_best, lr_monitor],
@@ -333,7 +336,7 @@ def parse_args(argv: List[str]) -> dict:
 
     # parameters for Neptune and random seed
     parser.add_argument("--random_seed", type=int, default=1, help="Integer specifying the global random seed")
-    parser.add_argument("--neptune_project", type=str, default="cellarium/tissue-purifier",
+    parser.add_argument("--neptune_project", type=str, default="skambham/tp-test",#"cellarium/tissue-purifier",
                         help="neptune project name. This is where the data will be logged")
 
     # parameters for the trainer
