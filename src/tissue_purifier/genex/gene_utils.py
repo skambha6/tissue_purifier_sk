@@ -34,6 +34,9 @@ class GeneDataset(NamedTuple):
 
     #: long tensor with the cell_type_ids of shape (n)
     cell_type_ids: torch.Tensor
+    
+    #: float tensor with the cell type proportions of shape (n, k)
+    cell_type_props: torch.Tensor
 
     #: long tensor with the count data of shape (n, g)
     counts: torch.Tensor
@@ -67,6 +70,7 @@ class GeneDataset(NamedTuple):
 def make_gene_dataset_from_anndata(
         anndata: AnnData,
         cell_type_key: str,
+        cell_type_prop_key: str,
         covariate_key: str,
         preprocess_strategy: str = 'raw',
         apply_pca: bool = False,
@@ -116,9 +120,11 @@ def make_gene_dataset_from_anndata(
     counts_ng = torch.tensor(anndata.X.toarray()).long()
     covariates_nl_raw = torch.tensor(anndata.obsm[covariate_key])
     
+
+    ## TODO: check this
     ## use mapping_dict.keys() so that order of cell types matches
     cell_type_props = torch.tensor(anndata.obs[mapping_dict.keys()].to_numpy()).float()
-    
+
 
     if not torch.all(torch.isfinite(covariates_nl_raw)):
         mask = torch.isfinite(covariates_nl_raw)
@@ -130,7 +136,9 @@ def make_gene_dataset_from_anndata(
 
     assert counts_ng.shape[0] == covariates_nl_raw.shape[0] == cell_type_ids_n.shape[0]
 
-    k_cell_types = cell_type_ids_n.max().item() + 1  # +1 b/c ids start from zero
+    ## do this based on shape of cell_type_proportions instead
+    #k_cell_types = cell_type_ids_n.max().item() + 1  # +1 b/c ids start from zero
+    k_cell_types = cell_type_props.shape[1]
 
     if apply_pca:
         new_covariate = SmartPca(preprocess_strategy=preprocess_strategy).fit_transform(data=covariates_nl_raw,
@@ -139,7 +147,7 @@ def make_gene_dataset_from_anndata(
         std, mean = torch.std_mean(covariates_nl_raw, dim=-2, unbiased=True, keepdim=True)
         mask = (std == 0.0)
         std[mask] = 1.0
-        new_covariate = (covariates_nl_raw - mean) / std
+        new_covariate = (covariates_nl_raw - mdean) / std
     elif preprocess_strategy == 'center':
         mean = torch.mean(covariates_nl_raw, dim=-2, keepdim=True)
         new_covariate = covariates_nl_raw - mean
@@ -148,6 +156,7 @@ def make_gene_dataset_from_anndata(
     
     return GeneDataset(
         cell_type_ids=_to_torch(cell_type_ids_n),
+        cell_type_props=_to_torch(cell_type_props),
         covariates=_to_torch(new_covariate),
         counts=_to_torch(counts_ng),
         cell_type_props = _to_torch(cell_type_props),
@@ -155,7 +164,6 @@ def make_gene_dataset_from_anndata(
         cell_type_mapping=mapping_dict,
         gene_names=list(anndata.var_names),
     )
-
 
 def train_test_val_split(
         data: Union[List[torch.Tensor], List[numpy.ndarray], GeneDataset],
@@ -208,7 +216,8 @@ def train_test_val_split(
         arrays = data
     elif isinstance(data, GeneDataset):
         # same order as in the definition of GeneDataset NamedTuple
-        arrays = [data.covariates, data.cell_type_ids, data.counts, data.cell_type_props]
+        ## TODO: check order here
+        arrays = [data.covariates, data.cell_type_ids, data.cell_type_props, data.counts]
     else:
         raise ValueError("data must be a list or a GeneDataset")
 

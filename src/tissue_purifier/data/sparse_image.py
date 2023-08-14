@@ -1464,7 +1464,6 @@ class SparseImage:
             if pixel_size is None:
                 mean_dnn, median_dnn = cls._check_mean_median_spacing(torch.tensor(x_raw), torch.tensor(y_raw))
                 pixel_size = 0.25 * median_dnn
-            
             try: 
                 sparse_img_obj = cls(
                     spot_properties_dict=spot_dictionary,
