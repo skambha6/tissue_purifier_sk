@@ -671,11 +671,15 @@ class SparseImage:
         #dense_img = self.to_dense().unsqueeze(dim=0).float()  
         dense_img = torch.tensor(self._image_properties_dict[image_property_key]).unsqueeze(dim=0).unsqueeze(dim=0) # shape: (1, ch=1, width, height)
         
+
+        
+        
+        
         ## assert dense_img is b/w 0 and 1
         
 #         import matplotlib.colors as mcolors
         
-#         # convert img property to 0-1 range to pass into colormap
+# #         # convert img property to 0-1 range to pass into colormap
 #         dense_img_flat = dense_img.flatten()
 #         norm = mcolors.Normalize(vmin = min(dense_img_flat), vmax = max(dense_img_flat), clip=True)
 #         dense_img_flat_norm = norm(dense_img_flat)
@@ -686,8 +690,6 @@ class SparseImage:
 
         ch = dense_img.shape[-3]
         weight = _make_kernel(spot_size).expand(ch, 1, -1, -1)
-
-        print(dense_img)
 
     
         if torch.cuda.is_available():
@@ -703,47 +705,60 @@ class SparseImage:
             dilation=1,
             groups=ch,
         ).squeeze(dim=0)
-
-        # colors = _get_color_tensor(cmap, ch).float().to(dense_rasterized_img.device)
-        # print(dense_rasterized_img.shape)
-        # print(colors.shape)
-        # #rgb_img = torch.einsum("cwh,cn -> nwh", dense_rasterized_img, colors)
-        # rgb_img = torch.einsum("wh,c->cwh", dense_rasterized_img.squeeze(), colors.squeeze())
         
-        cm = plt.get_cmap('tab20')
-        # cm expects 2D array as input 
-        print("reached")
-        print(dense_rasterized_img.shape)
-        rgb_img = torch.tensor(cm(dense_rasterized_img.squeeze().cpu()))        
-        #rgb_img = dense_rasterized_img
-        
-        in_range_min, in_range_max = torch.min(rgb_img), torch.max(rgb_img)
-        dist = in_range_max - in_range_min
-        scale = 1.0 if dist == 0.0 else 1.0 / dist
-        rgb_img.add_(other=in_range_min, alpha=-1.0).mul_(other=scale).clamp_(min=0.0, max=1.0)
-        rgb_img = rgb_img.detach().cpu()
+        dense_rasterized_img = dense_rasterized_img.squeeze().cpu()
 
-        rgb_img = rgb_img[:,:,:3].permute(2,0,1)
+        # pcm = ax.pcolor(dense_rasterized_img,
+        #    norm=colors.LogNorm(vmin=Z.min(), vmax=Z.max()),
+        #    cmap='PuBu_r', shading='auto')
         
-        # make the figure
-        fig, ax = plt.subplots(figsize=figsize)
-        im = ax.imshow((rgb_img.permute(1, 2, 0)*contrast).clamp(min=0.0, max=1.0))
+#         fig, ax = plt.subplots(figsize=figsize)
+#         pcm = ax.pcolor(dense_img.squeeze().cpu(),
+#            cmap='viridis')
+#         colorbar = fig.colorbar(pcm, ax=ax)
         
-        if show_colorbar:
-            discrete_cmp = matplotlib.colors.ListedColormap(cm.colors) #colors.cpu().numpy())
-            normalizer = matplotlib.colors.BoundaryNorm(
-                boundaries=numpy.linspace(-0.5, ch - 0.5, ch + 1),
-                ncolors=ch+8,
-                clip=True)
+#         dense_img.squeeze().cpu()
+        
+        return dense_img
 
-            scalar_mappable = matplotlib.cm.ScalarMappable(norm=normalizer, cmap=discrete_cmp)
-            #cbar = fig.colorbar(scalar_mappable, ticks=numpy.arange(0,1,0.1), ax=ax)
-            cbar = fig.colorbar(im, ticks=numpy.arange(0,1,0.1), ax=ax)
-            legend_colorbar = image_property_key
-            cbar.set_label(legend_colorbar)
-        plt.close()
+#         # colors = _get_color_tensor(cmap, ch).float().to(dense_rasterized_img.device)
+#         # print(dense_rasterized_img.shape)
+#         # print(colors.shape)
+#         # #rgb_img = torch.einsum("cwh,cn -> nwh", dense_rasterized_img, colors)
+#         # rgb_img = torch.einsum("wh,c->cwh", dense_rasterized_img.squeeze(), colors.squeeze())
+        
+#         cm = plt.get_cmap('tab20')
+#         # cm expects 2D array as input 
+#         rgb_img = torch.tensor(cm(dense_rasterized_img.squeeze().cpu()))        
+#         #rgb_img = dense_rasterized_img
+        
+#         in_range_min, in_range_max = torch.min(rgb_img), torch.max(rgb_img)
+#         dist = in_range_max - in_range_min
+#         scale = 1.0 if dist == 0.0 else 1.0 / dist
+#         rgb_img.add_(other=in_range_min, alpha=-1.0).mul_(other=scale).clamp_(min=0.0, max=1.0)
+#         rgb_img = rgb_img.detach().cpu()
 
-        return rgb_img, fig
+#         rgb_img = rgb_img[:,:,:3].permute(2,0,1)
+        
+#         # make the figure
+#         fig, ax = plt.subplots(figsize=figsize)
+#         im = ax.imshow((rgb_img.permute(1, 2, 0)*contrast).clamp(min=0.0, max=1.0))
+        
+#         if show_colorbar:
+#             discrete_cmp = matplotlib.colors.ListedColormap(cm.colors) #colors.cpu().numpy())
+#             normalizer = matplotlib.colors.BoundaryNorm(
+#                 boundaries=numpy.linspace(-0.5, ch - 0.5, ch + 1),
+#                 ncolors=ch+8,
+#                 clip=True)
+
+#             scalar_mappable = matplotlib.cm.ScalarMappable(norm=normalizer, cmap=discrete_cmp)
+#             #cbar = fig.colorbar(scalar_mappable, ticks=numpy.arange(0,1,0.1), ax=ax)
+#             cbar = fig.colorbar(im, ticks=numpy.arange(0,1,0.1), ax=ax)
+#             legend_colorbar = image_property_key
+#             cbar.set_label(legend_colorbar)
+#         plt.close()
+
+#         return rgb_img, fig
 
     def crops(
             self,
@@ -881,6 +896,10 @@ class SparseImage:
         self.write_to_spot_dictionary(key=feature_name, values=ncv, overwrite=overwrite)
         return ncv
 
+    ## TODO: remove n_patches_max from documentation
+    ## change function to compute patch features with patch overlap fraction rather than n_patches_max
+    ## this allows for samples of different sizes within the same dataset, rather than same # of patches per puck 
+    ## add strategy parameter
     @torch.no_grad()
     def compute_patch_features(
             self,
@@ -889,7 +908,7 @@ class SparseImage:
             model: torch.nn.Module,
             apply_transform: bool = True,
             batch_size: int = 64,
-            n_patches_max: int = 100,
+            frac_overlap: float = 0.5,
             overwrite: bool = False,
             return_crops: bool = False) -> Union[torch.Tensor, None]:
         """
@@ -932,43 +951,79 @@ class SparseImage:
         was_original_in_training_mode = model.training
         model.eval()
 
-        raw_patches = []
-        
         all_patches, all_features = [], []
         n_patches = 0
         patches_x, patches_y, patches_w, patches_h = [], [], [], []
-        while n_patches < n_patches_max:
-            n_tmp = min(batch_size, n_patches_max - n_patches)
-            crops, x_locs, y_locs = datamodule.cropper_test(self.data, n_crops=n_tmp)
-            patches_x += x_locs
-            patches_y += y_locs
-            patches_w += [crop.shape[-2] for crop in crops]
-            patches_h += [crop.shape[-1] for crop in crops]
-            n_patches += len(x_locs)
+        ##TODO: delete this
+#         while n_patches < n_patches_max:
+#             n_tmp = min(batch_size, n_patches_max - n_patches)
+#             crops, x_locs, y_locs = datamodule.cropper_test(self.data, n_crops=n_tmp)
+#             patches_x += x_locs
+#             patches_y += y_locs
+#             patches_w += [crop.shape[-2] for crop in crops]
+#             patches_h += [crop.shape[-1] for crop in crops]
+#             n_patches += len(x_locs)
 
-            if apply_transform:
-                patches = datamodule.trsfm_test(crops)
-            else:
-                patches = torch.stack(crops).float().to_dense()
+#             if apply_transform:
+#                 patches = datamodule.trsfm_test(crops)
+#             else:
+#                 patches = crops
 
-            if return_crops:
-                all_patches.append(patches.detach().cpu())
+#             if return_crops:
+#                 all_patches.append(patches.detach().cpu())
 
-            # print("1 patch:")
-            # print(patches[0, 1, :, :])
+#             features_tmp = model(patches)
+#             if isinstance(features_tmp, torch.Tensor):
+#                 all_features.append(features_tmp)
+#             elif isinstance(features_tmp, numpy.ndarray):
+#                 all_features.append(torch.from_numpy(features_tmp))
+#             elif isinstance(features_tmp, list):
+#                 all_features += features_tmp
+#             else:
+#                 raise NotImplementedError
+
+        ## TODO: deal with potential batch size / GPU memory issues with tiling method
+        crops, x_locs, y_locs = datamodule.cropper_test(self.data, frac_overlap = frac_overlap)
+        patches_x += x_locs
+        patches_y += y_locs
+        patches_w += [crop.shape[-2] for crop in crops]
+        patches_h += [crop.shape[-1] for crop in crops]
+        n_patches += len(x_locs)
+
+        if apply_transform:
+            patches = datamodule.trsfm_test(crops)
+        else:
+            patches = crops
+
+        if return_crops:
+            all_patches.append(patches.detach().cpu())
+
             
-            #patches[patches != 0] = 1.0
+        features_tmp = model(patches)
+        if isinstance(features_tmp, torch.Tensor):
+            all_features.append(features_tmp)
+        elif isinstance(features_tmp, numpy.ndarray):
+            all_features.append(torch.from_numpy(features_tmp))
+        elif isinstance(features_tmp, list):
+            all_features += features_tmp
+        else:
+            raise NotImplementedError
+        ## TODO: double check this
+        ## loop over patches processing batch_size at a time
+#         patch_index = 0
+#         while patch_index < n_patches:
+#             n_tmp = min(batch_size, n_patches - patch_index)
             
-            raw_patches.append(patches)
-            features_tmp = model(patches.cuda()) ##send patches to gpu
-            if isinstance(features_tmp, torch.Tensor):
-                all_features.append(features_tmp)
-            elif isinstance(features_tmp, numpy.ndarray):
-                all_features.append(torch.from_numpy(features_tmp))
-            elif isinstance(features_tmp, list):
-                all_features += features_tmp
-            else:
-                raise NotImplementedError
+#             features_tmp = model(patches[patch_index:patch_index+n_tmp])
+#             if isinstance(features_tmp, torch.Tensor):
+#                 all_features.append(features_tmp)
+#             elif isinstance(features_tmp, numpy.ndarray):
+#                 all_features.append(torch.from_numpy(features_tmp))
+#             elif isinstance(features_tmp, list):
+#                 all_features += features_tmp
+#             else:
+#                 raise NotImplementedError
+        
 
         # put back the model in the state it was original
         if was_original_in_training_mode:
@@ -981,21 +1036,29 @@ class SparseImage:
         h_torch = torch.tensor(patches_h, dtype=torch.int).cpu()
         patches_xywh = torch.stack((x_torch, y_torch, w_torch, h_torch), dim=-1).long()
 
+        ## TODO: check this
         # make a single batched tensor of the features
-        if len(all_features) == n_patches_max:
-            features = torch.stack(all_features, dim=0).cpu()
-        else:
-            features = torch.cat(all_features, dim=0).cpu()
+        # features = torch.stack(all_features, dim=0).cpu()
+        features = torch.cat(all_features, dim=0).cpu()
+        
+        ## TODO: DELETE THIS
+        # if len(all_features) == n_patches_max:
+        #     features = torch.stack(all_features, dim=0).cpu()
+        # else:
+        #     features = torch.cat(all_features, dim=0).cpu()
 
         self.write_to_patch_dictionary(
             key=feature_name, values=features, patches_xywh=patches_xywh, overwrite=overwrite)
 
         if return_crops:
-            if len(all_patches) == n_patches_max:
-                patches = torch.stack(all_patches, dim=0).cpu()
-            else:
-                patches = torch.cat(all_patches, dim=0).cpu()
+            patches = torch.stack(all_patches, dim=0).cpu()
+            ## TODO: DELETE THIS
+            # if len(all_patches) == n_patches_max:
+            #     patches = torch.stack(all_patches, dim=0).cpu()
+            # else:
+            #     patches = torch.cat(all_patches, dim=0).cpu()
             return patches
+
 
     def transfer_patch_to_spot(
             self,

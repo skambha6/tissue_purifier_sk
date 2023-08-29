@@ -179,8 +179,8 @@ class SparseSslDM(SslDM):
                  occlusion_fraction: Tuple[float, float] = (0.1, 0.3),
                  drop_channel_prob: float = 0.0,
                  drop_channel_relative_freq: Iterable[float] = None,
-                 n_crops_for_tissue_test: int = 50,
                  n_crops_for_tissue_train: int = 50,
+                 overlap_for_tissue_test: float = 0.5,
                  batch_size_per_gpu: int = 64,
                  **kargs):
         """
@@ -223,8 +223,8 @@ class SparseSslDM(SslDM):
         self._drop_channel_prob = drop_channel_prob
         self._drop_channel_relative_freq = drop_channel_relative_freq
         self._n_element_min_for_crop = n_element_min_for_crop
-        self._n_crops_for_tissue_test = n_crops_for_tissue_test
         self._n_crops_for_tissue_train = n_crops_for_tissue_train
+        self._overlap_for_tissue_test = overlap_for_tissue_test
 
         # batch_size
         self._batch_size_per_gpu = batch_size_per_gpu
@@ -274,9 +274,9 @@ class SparseSslDM(SslDM):
         parser.add_argument("--n_crops_for_tissue_train", type=int, default=50,
                             help="The number of crops in each training epoch will be: n_tissue * n_crops. \
                                Set small for rapid prototyping")
-        parser.add_argument("--n_crops_for_tissue_test", type=int, default=50,
-                            help="The number of crops in each test epoch will be: n_tissue * n_crops. \
-                               Set small for rapid prototyping")
+        parser.add_argument("--overlap_for_tissue_test", type=float, default=0.5,
+                            help="The stride size for generating tissue crops will be: global_size - global_size * overlap_for_tissue_test. \
+                               Set large for more accurate patch features. Set small for more disjoint patches.")
         parser.add_argument("--batch_size_per_gpu", type=int, default=64,
                             help="Batch size for EACH GPUs. Set small for rapid prototyping. \
                             The total batch_size will increase linearly with the number of GPUs.")
@@ -308,17 +308,32 @@ class SparseSslDM(SslDM):
         """ Number of local crops for each image to use for training (used only for Dino). """
         return self._n_local_crops
 
+    # TODO: delete this
+    # @property
+    # def cropper_test(self) -> CropperSparseTensor:
+    #     """ Cropper to be used at test time. This specify the cropping strategy to use at test time. """
+    #     return CropperSparseTensor(
+    #         strategy='random',
+    #         crop_size=self._global_size,
+    #         n_element_min=self._n_element_min_for_crop,
+    #         n_crops=self._n_crops_for_tissue_test,
+    #         random_order=True,
+    #     )
+    
     @property
     def cropper_test(self) -> CropperSparseTensor:
         """ Cropper to be used at test time. This specify the cropping strategy to use at test time. """
+        # TODO: delete
+        # stride = self._global_size - int(self._global_size * self._overlap_for_tissue_test)
         return CropperSparseTensor(
-            strategy='random',
+            strategy='tiling',
             crop_size=self._global_size,
             n_element_min=self._n_element_min_for_crop,
-            n_crops=self._n_crops_for_tissue_test,
+            frac_overlap = self._overlap_for_tissue_test,
             random_order=True,
         )
 
+    ## TODO: change crop_size to global_size instead of * 1.5?
     @property
     def cropper_train(self) -> CropperSparseTensor:
         """ Cropper to be used at train time. This specify the cropping strategy to use at train time. """

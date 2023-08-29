@@ -24,6 +24,7 @@ class CropperTensor(torch.nn.Module):
         crop_size: int = 224,
         strategy: str = 'random',
         stride: int = 200,
+        frac_overlap: float=0.5,
         n_crops: int = 10,
         random_order: bool = True,
         criterium_fn: Callable = None,
@@ -35,6 +36,8 @@ class CropperTensor(torch.nn.Module):
             strategy: str, can be either 'random' or 'tiling' or 'identity'
             stride: Used only when :attr:'strategy' is 'tiling'.
                 Displacement among consecutive sliding window. This allow to control the overlap between crops.
+            frac_overlap: Used only when :attr:'strategy' is 'tiling'.
+                Used to compute stride.
             n_crops: int, the size of crops to generate from a single image.
             random_order: Used only when :attr:'strategy' is 'tiling'.
                 If true the crops are shuffled before being returned.
@@ -43,6 +46,7 @@ class CropperTensor(torch.nn.Module):
         super().__init__()
         self.crop_size_ = crop_size
         self.strategy_ = strategy
+        self.frac_overlap_ = frac_overlap
         self.stride_ = stride
         self.n_crops_ = n_crops
         self.random_order_ = random_order
@@ -64,14 +68,18 @@ class CropperTensor(torch.nn.Module):
             crop_size: int = None,
             strategy: str = None,
             stride: int = None,
+            frac_overlap: float = None,
             n_crops: int = None,
             random_order: bool = None,
             criterium_fn: Callable = None) -> (List[torch.Tensor], List[int], List[int]):
 
-        # All parameters default to the one used during initialization if they are not specified
+        ## TODO: check change to frac_overlap / stride usage is done in a pythonic way
+        
+        # All parameters default to the one used during initialization if they are not specified except for stride which is computed
         crop_size = self.crop_size_ if crop_size is None else crop_size
         strategy = self.strategy_ if strategy is None else strategy
-        stride = self.stride_ if stride is None else stride
+        stride = crop_size - int(crop_size * frac_overlap) if stride is None else stride
+        frac_overlap = self.frac_overlap_ if stride is None else stride
         n_crops = self.n_crops_ if n_crops is None else n_crops
         random_order = self.random_order_ if random_order is None else random_order
         criterium_fn = self.criterium_fn_ if criterium_fn is None else criterium_fn
@@ -315,6 +323,8 @@ class CropperSparseTensor(CropperTensor):
         
         ch, w_img, h_img = sparse_tensor.size()
 
+        print("stride:")
+        print(stride)
         if strategy == 'tiling':
             # generate a random starting point
             x_corner_list, y_corner_list = [], []
@@ -377,36 +387,66 @@ class CropperSparseTensor(CropperTensor):
             # warnings.warn("Warning. Not enough valid crops found. Change the parameters. ")
             print("Warning. Only {0} valid crops found when requested {1}. \
             Change the parameters.".format(n_valid_patches, n_crops))
-        n_max = min(n_crops, n_valid_patches)
-
-        ix = x_corner[valid_patch, 0][: n_max]  # shape: n_max
-        iy = y_corner[valid_patch, 0][: n_max]  # shape: n_max
-        mask = element_mask[valid_patch][: n_max]  # shape: n_max, element_in_sparse_array
+        
         dense_crop_shape = (ch, crop_size, crop_size)
 
-        crops = []
-        for n in range(n_max):
-            mask_n = mask[n]
-            #print(codes.shape)
-            codes_n = codes[mask_n]
-            #print(codes_n.shape)
-            x_pixel_n = x_pixel[mask_n] - ix[n]
-            y_pixel_n = y_pixel[mask_n] - iy[n]
-            values_n = values[mask_n]
-            #print(values_n.shape)
+        ## TODO: change this to be in a better way? (allow n_crops with tiling?)
+        if strategy == 'tiling':
+            crops = []
+            ix = x_corner[valid_patch, 0]  # shape: n_valid_patches
+            iy = y_corner[valid_patch, 0]  # shape: n_valid_patches
+            mask = element_mask[valid_patch]  # shape: n_valid_patches, element_in_sparse_array
+            for n in range(n_valid_patches):
+                mask_n = mask[n]
+                #print(codes.shape)
+                codes_n = codes[mask_n]
+                #print(codes_n.shape)
+                x_pixel_n = x_pixel[mask_n] - ix[n]
+                y_pixel_n = y_pixel[mask_n] - iy[n]
+                values_n = values[mask_n]
+                #print(values_n.shape)
 
-            crops.append(
-                torch.sparse_coo_tensor(
-                    indices=torch.stack((codes_n, x_pixel_n, y_pixel_n), dim=0),
-                    values=values_n,
-                    size=dense_crop_shape,
-                    device=x_pixel.device,
-                    requires_grad=False,
-                ).coalesce()
-            )
+                crops.append(
+                    torch.sparse_coo_tensor(
+                        indices=torch.stack((codes_n, x_pixel_n, y_pixel_n), dim=0),
+                        values=values_n,
+                        size=dense_crop_shape,
+                        device=x_pixel.device,
+                        requires_grad=False,
+                    ).coalesce()
+                )
 
-        x_locs = [ix[n].item() for n in range(n_max)]
-        y_locs = [iy[n].item() for n in range(n_max)]
+            x_locs = [ix[n].item() for n in range(n_valid_patches)]
+            y_locs = [iy[n].item() for n in range(n_valid_patches)]
+        else:
+            n_max = min(n_crops, n_valid_patches)
+
+            ix = x_corner[valid_patch, 0][: n_max]  # shape: n_max
+            iy = y_corner[valid_patch, 0][: n_max]  # shape: n_max
+            mask = element_mask[valid_patch][: n_max]  # shape: n_max, element_in_sparse_array
+            crops = []
+            for n in range(n_max):
+                mask_n = mask[n]
+                #print(codes.shape)
+                codes_n = codes[mask_n]
+                #print(codes_n.shape)
+                x_pixel_n = x_pixel[mask_n] - ix[n]
+                y_pixel_n = y_pixel[mask_n] - iy[n]
+                values_n = values[mask_n]
+                #print(values_n.shape)
+
+                crops.append(
+                    torch.sparse_coo_tensor(
+                        indices=torch.stack((codes_n, x_pixel_n, y_pixel_n), dim=0),
+                        values=values_n,
+                        size=dense_crop_shape,
+                        device=x_pixel.device,
+                        requires_grad=False,
+                    ).coalesce()
+                )
+
+            x_locs = [ix[n].item() for n in range(n_max)]
+            y_locs = [iy[n].item() for n in range(n_max)]
         return crops, x_locs, y_locs
 
 
