@@ -84,6 +84,7 @@ class SimclrModel(SslModelBase):
             max_weight_decay: float,
             # validation
             val_iomin_threshold: float = 0.0,
+            run_classify_regress: bool=False, ##TODO: add to documentation
             **kwargs,
             ):
         """
@@ -104,7 +105,7 @@ class SimclrModel(SslModelBase):
             val_iomin_threshold: during validation, only patches with Intersection Over MinArea < IoMin_threshold
                 are used. Should be in [0.0, 1.0). If 0 only strictly non-overlapping patches are allowed.
         """
-        super(SimclrModel, self).__init__(val_iomin_threshold=val_iomin_threshold)
+        super(SimclrModel, self).__init__(val_iomin_threshold=val_iomin_threshold, run_classify_regress=run_classify_regress)
 
         # Next two lines will make checkpointing much simpler
         self.save_hyperparameters()  # all hyperparameters are saved to the checkpoint
