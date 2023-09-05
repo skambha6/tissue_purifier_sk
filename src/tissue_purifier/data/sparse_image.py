@@ -7,6 +7,8 @@ import copy
 import torch
 from tissue_purifier.models.patch_analyzer import SpatialAutocorrelation
 from tissue_purifier.data.dataset import CropperSparseTensor
+from tissue_purifier.utils.validation_util import SmartPca, SmartUmap, SmartLeiden
+from sklearn.model_selection import train_test_split
 from scanpy import AnnData
 import matplotlib.cm
 import matplotlib.colors
@@ -671,9 +673,6 @@ class SparseImage:
         #dense_img = self.to_dense().unsqueeze(dim=0).float()  
         dense_img = torch.tensor(self._image_properties_dict[image_property_key]).unsqueeze(dim=0).unsqueeze(dim=0) # shape: (1, ch=1, width, height)
         
-
-        
-        
         
         ## assert dense_img is b/w 0 and 1
         
@@ -896,7 +895,8 @@ class SparseImage:
         self.write_to_spot_dictionary(key=feature_name, values=ncv, overwrite=overwrite)
         return ncv
 
-    ## TODO: remove n_patches_max from documentation
+    ## TODO: remove n_patches_max from documentation OR allow tiling to work with 2 strategies
+    ## TODO: add crop strategy as input parameter to compute_patch_features
     ## change function to compute patch features with patch overlap fraction rather than n_patches_max
     ## this allows for samples of different sizes within the same dataset, rather than same # of patches per puck 
     ## add strategy parameter
@@ -908,9 +908,10 @@ class SparseImage:
             model: torch.nn.Module,
             apply_transform: bool = True,
             batch_size: int = 64,
-            frac_overlap: float = 0.5,
+            frac_overlap: float = 0.0,
             overwrite: bool = False,
-            return_crops: bool = False) -> Union[torch.Tensor, None]:
+            return_crops: bool = False,
+            compute_ncv: bool = True) -> Union[torch.Tensor, None]:
         """
         Split the sparse image into (possibly overlapping) patches.
         Each patch is analyzed by the (pretrained) model.
@@ -932,6 +933,7 @@ class SparseImage:
             return_crops: if True the model returns a (batched) torch.Tensor of shape
                 :math:`(\\text{n_patches_max}, c, w, h)` with all the crops which were fed to the model.
                 Default is False.
+            compute_ncv: if True, ncv for each patch is also computed and stored in the patch_properties_dict under the :attr:`ncv`.
 
         Returns:
             patches: If :attr:`return_crops` is True returns tensor of shape
@@ -1049,6 +1051,29 @@ class SparseImage:
 
         self.write_to_patch_dictionary(
             key=feature_name, values=features, patches_xywh=patches_xywh, overwrite=overwrite)
+        
+        if compute_ncv:
+            codes = self._categories_to_codes.values()
+            ## assert statement that values are integers or floats from 0-1
+            
+            patch_ncvs = []
+            for crop in crops:
+                ## get cell types in the patch
+                cells = crop.indices().detach().clone()[[0]]
+                ct_counts = []
+
+                ## count number of each cell type
+                for code in codes:
+                    ct_counts.append(int(torch.count_nonzero(cells==code).detach().cpu()))
+
+                ## normalize to form ncv
+                ct_counts = np.array(ct_counts)
+                ncv = ct_counts/np.sum(ct_counts)
+                patch_ncvs.append(ncv)
+                
+            patch_ncvs = torch.tensor(patch_ncvs)
+            self.write_to_patch_dictionary(
+                key='ncv', values=patch_ncvs, patches_xywh=patches_xywh, overwrite=overwrite)
 
         if return_crops:
             patches = torch.stack(all_patches, dim=0).cpu()
@@ -1058,7 +1083,76 @@ class SparseImage:
             # else:
             #     patches = torch.cat(all_patches, dim=0).cpu()
             return patches
+        
+        
+    def patch_train_test_split(self, feature_xywh: str=None,
+                                res: int=0.4, 
+                                stratify: bool=True,
+                                write_to_spot_dictionary: bool=True, 
+                                return_patches: bool=True): #-> dict, dict:
+        
+        """
+        Split patch locations under feature into train/test split. Can stratify by patch cell composition (run compute_patch_ncv first). Useful for splitting data  
+        without spatial overlap (if patches are computed with no overlap) for downstream regression tasks.
 
+        Args:
+            feature_xywh: Patch locations that would like to be split
+            res: Leiden cluster resolution for determining patch NCV clusters
+        """
+        
+        ## Cluster Patch NCVs
+        if stratify:
+            assert "ncv" in self._patch_properties_dict.keys(), \
+                "Compute Patch NCV first."
+
+            ## Cluster patch NCVs
+            patch_ncv = self._patch_properties_dict["ncv"]
+
+            assert np.array_equal(self._patch_properties_dict["ncv_patch_xywh"], self._patch_properties_dict[feature_xywh]), \
+                "NCV patch xywh does not match feature xywh"
+
+            smart_umap = SmartUmap(n_neighbors=25, preprocess_strategy='z_score', n_components=2, min_dist=0.5, metric='cosine')
+            embeddings_umap = smart_umap.fit_transform(patch_ncv)
+
+            umap_graph = smart_umap.get_graph()
+            smart_leiden = SmartLeiden(graph=umap_graph)
+
+            leiden_clusters = smart_leiden.cluster(resolution=res, partition_type='RBC')
+
+        ## Split patches into train/test, stratifying by NCV clusters
+        ## write custom train_test_split function in utils
+        
+        ##TODO: see why this isn't working as expected
+        if stratify:
+            try:
+                train_patch_xywh, test_patch_xywh = train_test_split(self._patch_properties_dict[feature_xywh], stratify=leiden_clusters)
+            except ValueError: #ValueError as ve: ##TODO: specify for the appropriate exception here
+                # raise Exception("ValueError: " + str(ve))
+                raise Exception("Not enough samples in each cluster to split the data. Try a smaller res")
+        else:
+            train_patch_xywh, test_patch_xywh = train_test_split(self._patch_properties_dict[feature_xywh])
+        
+        train_test_id = np.concatenate((np.zeros(train_patch_xywh.shape[0]), np.ones(test_patch_xywh.shape[0])))
+    
+        sample_patch_xywh = np.concatenate((train_patch_xywh, test_patch_xywh))
+        
+        ## Write to patch dictionary
+        self.write_to_patch_dictionary(key='train_test_split_id', values=train_test_id,
+                patches_xywh = sample_patch_xywh, overwrite=True)
+        
+        ## Write to spot dictionary
+        if write_to_spot_dictionary:
+             self.transfer_patch_to_spot(
+                keys_to_transfer='train_test_split_id',
+                overwrite=True)
+                
+        if return_patches:
+            return self._patch_properties_dict['train_test_split_id'], self._patch_properties_dict['train_test_split_id_patch_xywh']
+            
+        
+        
+    
+    # def spatial_train_test_val_split()
 
     def transfer_patch_to_spot(
             self,
@@ -1355,7 +1449,7 @@ class SparseImage:
             'pixel_size': self._pixel_size,
             'x_key': self._x_key,
             'y_key': self._y_key,
-            'category_key': self._cat_keys,
+            'category_key': self._cat_key,
             'categories_to_codes': self._categories_to_codes,
             'spot_properties_dict': self._spot_properties_dict,
             'patch_properties_dict': self._patch_properties_dict,

@@ -71,6 +71,10 @@ def parse_args(argv: List[str]) -> dict:
                         default='average', help="How to combine overlapping patches to create an image-level feature")
     parser.add_argument("--strategy_image_to_spot", type=str, choices=['closest', 'bilinear'],
                         default='bilinear', help="How to interpolate from the image-level to spot-level features")
+    parser.add_argument("--frac_overlap", type=float, 
+                        default=0.0, help="How much overlap when tiling sparse image into patches to compute patch-level features")
+    parser.add_argument("--ncv_patch_cluster_res", type=float, 
+                        default=0.4, help="Resolution for clustering patches by NCV (determines patch-level train/test split)")
     parser.add_argument("--ssl_model", type=str, default=None,
                         choices=["barlow", "dino", "vae", "simclr"],
                         help="the Self Supervised Learning framework corresponding to the checkpoint. In most cases \
@@ -155,12 +159,13 @@ if __name__ == '__main__':
                 sparse_img.compute_ncv(feature_name="ncv_r{}".format(r), r=r)
 
         # compute the ssl features
+        ##TODO: incorporate batch size into this function
         sparse_img.compute_patch_features(
             feature_name=config_dict_["feature_key"],
             model=model,
             datamodule=dm,
             batch_size=64,
-            n_patches_max=config_dict_["n_patches"],
+            frac_overlap=config_dict_["frac_overlap"], ## add this to the config_dict
             overwrite=True
         )
         sparse_img.transfer_patch_to_spot(keys_to_transfer=[config_dict_["feature_key"]],
@@ -169,9 +174,17 @@ if __name__ == '__main__':
                                           strategy_patch_to_image=config_dict_["strategy_patch_to_image"],
                                           strategy_image_to_spot=config_dict_["strategy_image_to_spot"])
 
+        ## run spatial train_test_split at patch level
+        _ = sparse_img.patch_train_test_split(feature_xywh=config_dict_["feature_key"] + "_patch_xywh",
+                                    res=config_dict_["ncv_patch_cluster_res"], 
+                                    stratify=True,
+                                    write_to_spot_dictionary=True, 
+                                    return_patches=True)
+        
+        
         # remove the intermediate results in the patch_dict and image_dict and save the new anndata to file
         sparse_img.clear_dicts(patch_dict=True, image_dict=True)
-        new_anndata = sparse_img.to_anndata()
+        new_anndata = sparse_img.to_anndata(export_full_state=True)
         
         out_file_name = fname[:-5] + "_featurized.h5ad" ##user optional suffix here
         
