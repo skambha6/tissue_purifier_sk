@@ -1089,10 +1089,88 @@ class SparseImage:
                                 res: int=0.4, 
                                 stratify: bool=True,
                                 write_to_spot_dictionary: bool=True, 
-                                return_patches: bool=True): #-> dict, dict:
+                                return_patches: bool=True,
+                                train_size: float=0.8,
+                                test_size: float=0.2,
+                                random_state: int = 0): #-> dict, dict:
         
         """
         Split patch locations under feature into train/test split. Can stratify by patch cell composition (run compute_patch_ncv first). Useful for splitting data  
+        without spatial overlap (if patches are computed with no overlap) for downstream regression tasks.
+
+        Args:
+            feature_xywh: Patch locations that would like to be split
+            res: Leiden cluster resolution for determining patch NCV clusters
+        """
+        
+        if train_size <= 0:
+            raise ValueError("Train_size must be > 0")
+        if test_size <= 0:
+            raise ValueError("Test_size must be > 0")
+        
+        ## Cluster Patch NCVs
+        if stratify:
+            assert "ncv" in self._patch_properties_dict.keys(), \
+                "Compute Patch NCV first."
+
+            ## Cluster patch NCVs
+            patch_ncv = self._patch_properties_dict["ncv"]
+
+            assert np.array_equal(self._patch_properties_dict["ncv_patch_xywh"], self._patch_properties_dict[feature_xywh]), \
+                "NCV patch xywh does not match feature xywh"
+
+            smart_umap = SmartUmap(n_neighbors=25, preprocess_strategy='z_score', n_components=2, min_dist=0.5, metric='cosine')
+            embeddings_umap = smart_umap.fit_transform(patch_ncv)
+
+            umap_graph = smart_umap.get_graph()
+            smart_leiden = SmartLeiden(graph=umap_graph)
+
+            leiden_clusters = smart_leiden.cluster(resolution=res, partition_type='RBC')
+
+        ## Split patches into train/test, stratifying by NCV clusters
+        ## write custom train_test_split function in utils
+        
+        ##TODO: see why this isn't working as expected
+        if stratify:
+            try:
+                train_patch_xywh, test_patch_xywh = train_test_split(self._patch_properties_dict[feature_xywh], train_size=train_size, test_size=test_size, stratify=leiden_clusters,
+                                                                     random_state=random_state)
+            except ValueError: #ValueError as ve: ##TODO: specify for the appropriate exception here
+                # raise Exception("ValueError: " + str(ve))
+                raise Exception("Not enough samples in each cluster to split the data. Try a smaller res")
+        else:
+            train_patch_xywh, test_patch_xywh = train_test_split(self._patch_properties_dict[feature_xywh], train_size=train_size, test_size=test_size,
+                                                                random_state=random_state)
+        
+        train_test_id = np.concatenate((np.zeros(train_patch_xywh.shape[0]), np.ones(test_patch_xywh.shape[0])))
+    
+        sample_patch_xywh = np.concatenate((train_patch_xywh, test_patch_xywh))
+        
+        ## Write to patch dictionary
+        self.write_to_patch_dictionary(key='train_test_split_id', values=train_test_id,
+                patches_xywh=sample_patch_xywh, overwrite=True)
+        
+        ## Write to spot dictionary
+        if write_to_spot_dictionary:
+             self.transfer_patch_to_spot(
+                keys_to_transfer='train_test_split_id',
+                overwrite=True)
+                
+        if return_patches:
+            return self._patch_properties_dict['train_test_split_id'], self._patch_properties_dict['train_test_split_id_patch_xywh']
+        
+    def patch_train_test_val_split(self, feature_xywh: str=None,
+                                res: int=0.4, 
+                                stratify: bool=True,
+                                write_to_spot_dictionary: bool=True, 
+                                return_patches: bool=True,
+                                train_size: float = 0.8,
+                                test_size: float = 0.15,
+                                val_size: float = 0.05,
+                                random_state: int = 0): #-> dict, dict:
+        
+        """
+        Split patch locations under feature into train/test/val split. Can stratify by patch cell composition (run compute_patch_ncv first). Useful for splitting data  
         without spatial overlap (if patches are computed with no overlap) for downstream regression tasks.
 
         Args:
@@ -1122,37 +1200,47 @@ class SparseImage:
         ## Split patches into train/test, stratifying by NCV clusters
         ## write custom train_test_split function in utils
         
+        
+        # Normalize the train/test/val sizes
+        norm0 = train_size + test_size + val_size
+        train_size_norm0 = train_size / norm0
+        test_and_val_size_norm0 = (test_size + val_size) / norm0
+
+        norm1 = test_size + val_size
+        test_size_norm1 = test_size / norm1
+        val_size_norm1 = val_size / norm1
+        
         ##TODO: see why this isn't working as expected
         if stratify:
             try:
-                train_patch_xywh, test_patch_xywh = train_test_split(self._patch_properties_dict[feature_xywh], stratify=leiden_clusters)
+                train_patch_xywh, test_and_val_patch_xywh, train_leiden_clusters, test_and_val_leiden_clusters = train_test_split(self._patch_properties_dict[feature_xywh],
+                                                                                       leiden_clusters, train_size = train_size, test_size = test_and_val_size_norm0, 
+                                                                                       stratify=leiden_clusters)
+                val_patch_xywh, test_patch_xywh = train_test_split(test_and_val_patch_xywh, train_size=val_size_norm1, test_size=test_size_norm1,  
+                                                                   stratify=test_and_val_leiden_clusters)
             except ValueError: #ValueError as ve: ##TODO: specify for the appropriate exception here
                 # raise Exception("ValueError: " + str(ve))
-                raise Exception("Not enough samples in each cluster to split the data. Try a smaller res")
+                raise Exception("Not enough samples in each cluster to split the data. Try a smaller res or adjusting train/test/val size")
         else:
-            train_patch_xywh, test_patch_xywh = train_test_split(self._patch_properties_dict[feature_xywh])
+            train_patch_xywh, test_and_val_patch_xywh = train_test_split(self._patch_properties_dict[feature_xywh], train_size = train_size, test_size = test_and_val_size_norm0)
+            val_patch_xywh, test_patch_xywh = train_test_split(test_and_val_patch_xywh, train_size=val_size_norm1, test_size=test_size_norm1)
         
-        train_test_id = np.concatenate((np.zeros(train_patch_xywh.shape[0]), np.ones(test_patch_xywh.shape[0])))
+        train_test_val_id = np.concatenate((np.zeros(train_patch_xywh.shape[0]), np.ones(test_patch_xywh.shape[0]), 2*np.ones(val_patch_xywh.shape[0])))
     
-        sample_patch_xywh = np.concatenate((train_patch_xywh, test_patch_xywh))
+        sample_patch_xywh = np.concatenate((train_patch_xywh, test_patch_xywh, val_patch_xywh))
         
         ## Write to patch dictionary
-        self.write_to_patch_dictionary(key='train_test_split_id', values=train_test_id,
+        self.write_to_patch_dictionary(key='train_test_val_split_id', values=train_test_val_id,
                 patches_xywh = sample_patch_xywh, overwrite=True)
         
         ## Write to spot dictionary
         if write_to_spot_dictionary:
              self.transfer_patch_to_spot(
-                keys_to_transfer='train_test_split_id',
+                keys_to_transfer='train_test_val_split_id',
                 overwrite=True)
                 
         if return_patches:
-            return self._patch_properties_dict['train_test_split_id'], self._patch_properties_dict['train_test_split_id_patch_xywh']
-            
-        
-        
-    
-    # def spatial_train_test_val_split()
+            return self._patch_properties_dict['train_test_val_split_id'], self._patch_properties_dict['train_test_val_split_id_patch_xywh']
 
     def transfer_patch_to_spot(
             self,
