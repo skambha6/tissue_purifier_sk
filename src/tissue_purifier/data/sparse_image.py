@@ -908,7 +908,7 @@ class SparseImage:
             model: torch.nn.Module,
             apply_transform: bool = True,
             batch_size: int = 64,
-            frac_overlap: float = 0.0,
+            fraction_patch_overlap: float = 0.0,
             overwrite: bool = False,
             return_crops: bool = False,
             compute_ncv: bool = True) -> Union[torch.Tensor, None]:
@@ -985,7 +985,7 @@ class SparseImage:
 #                 raise NotImplementedError
 
         ## TODO: deal with potential batch size / GPU memory issues with tiling method
-        crops, x_locs, y_locs = datamodule.cropper_test(self.data, frac_overlap = frac_overlap)
+        crops, x_locs, y_locs = datamodule.cropper_test(self.data, fraction_patch_overlap = fraction_patch_overlap)
         patches_x += x_locs
         patches_y += y_locs
         patches_w += [crop.shape[-2] for crop in crops]
