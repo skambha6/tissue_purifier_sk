@@ -5,7 +5,7 @@ import numpy as np
 import time
 import pandas as pd
 import matplotlib.pyplot as plt
-from gene_utils import GeneDataset
+from tissue_purifier.genex.gene_utils import GeneDataset # relative vs absolute imports 
 
 
 from sklearn.linear_model import PoissonRegressor
@@ -83,7 +83,7 @@ class GeneRegression:
         return gene_names_kg
     
     def train(self,
-              dataset: GeneDataset,
+              train_dataset: GeneDataset,
               n_steps: int = 100,
               print_frequency: int = 100,
               use_covariates: bool = True,
@@ -99,34 +99,37 @@ class GeneRegression:
             'use_covariates': use_covariates,
             'regularization_sweep': regularization_sweep,
             'alpha_regularization_strengths': alpha_regularization_strengths,
-            'cell_type_mapping': dataset.cell_type_mapping,
-            'gene_names': dataset.gene_names,
+            'cell_type_mapping': train_dataset.cell_type_mapping,
+            'gene_names': train_dataset.gene_names,
         }
         
         # make a copy so that can edit train_kargs without changing _train_kargs
         self._train_kargs = train_kargs.copy()
 
         # Unpack the dataset
-        counts_ng = dataset.counts.long()
-        cell_type_ids = dataset.cell_type_ids.long()
+        counts_ng = train_dataset.counts.long()
+        cell_type_ids = train_dataset.cell_type_ids.long()
         total_umi_n = counts_ng.sum(dim=-1)
         
         # Prepare arguments for training
         train_kargs["n_cells"] = counts_ng.shape[0]
         train_kargs["g_genes"] = counts_ng.shape[1]
-        train_kargs["l_cov"] = dataset.covariates.shape[-1]
-        train_kargs["k_cell_types"] = dataset.k_cell_types
+        train_kargs["l_cov"] = train_dataset.covariates.shape[-1]
+        train_kargs["k_cell_types"] = train_dataset.k_cell_types
         train_kargs["counts_ng"] = counts_ng.cpu()
         train_kargs["total_umi_n"] = total_umi_n.cpu()
-        train_kargs["covariates_nl"] = dataset.covariates.float().cpu()
+        train_kargs["covariates_nl"] = train_dataset.covariates.float().cpu()
         train_kargs["cell_type_ids_n"] = cell_type_ids
-        train_kargs["cell_type_props"] = dataset.cell_type_props 
+        train_kargs["cell_type_props"] = train_dataset.cell_type_props 
         
         self._train_kargs = train_kargs
         
-        self.fit_model(counts_ng, train_kargs, print_frequency)
+        self.fit_model(train_dataset, counts_ng, print_frequency, train_kargs)
     
-    def fit_model(self, counts_ng, kargs, print_frequency):
+    def fit_model(self, train_dataset: GeneDataset, 
+                        counts_ng: np.array,
+                        print_frequency: int,
+                        kargs: dict):
         
         total_umi_n = kargs["total_umi_n"]
         cell_type_props_nk = kargs['cell_type_props']
@@ -142,7 +145,7 @@ class GeneRegression:
         
         log_total_umi_n1 = np.log(np.asarray(total_umi_n)).reshape(-1,1)
         
-        X = self._get_regression_X()
+        X = self._get_regression_X(train_dataset)
         
         # ## add log umi information as a covariate
         # if self._use_covariates:
@@ -156,14 +159,16 @@ class GeneRegression:
         ## Train a separate GLM for each gene
         for i in range(g_genes):
 
-            if i+1 % print_frequency == 0:
-                print('finished ' + str(i) + 'genes')
+            if i % print_frequency == 0:
+                print('finished ' + str(i) + ' genes')
                 
             gene_name = gene_names[i]
             y = np.ravel(counts_ng[:,i])
 
             if not regularization_sweep:
-                self.clf_g[gene_name] = PoissonRegressor(max_iter=n_steps).fit(X, y)
+                ## output warning message
+                assert len(alpha_regularization_strengths) == 1
+                self.clf_g[gene_name] = PoissonRegressor(alpha = alpha_regularization_strengths[0], fit_intercept=False, max_iter=n_steps).fit(X, y)
             else:
                 best_estimator, best_params, cv_results = self.alpha_cross_validation(n_steps, alpha_regularization_strengths, X, y)
                 
@@ -176,7 +181,7 @@ class GeneRegression:
         ## add in support for user-defined scoring function
         
         param_dict = {'alpha': alpha_regularization_strengths}
-        grid_search = GridSearchCV(PoissonRegressor(max_iter=n_steps), param_dict)
+        grid_search = GridSearchCV(PoissonRegressor(fit_intercept=False, max_iter=n_steps), param_dict)
         grid_search.fit(X,y)
         
         cv_results = grid_search.cv_results_
