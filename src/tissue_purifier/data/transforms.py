@@ -305,7 +305,7 @@ class DropChannel(torch.nn.Module):
 class RandomStraightCut(torch.nn.Module):
     """
     Draw a random straight line and set all the values on one side of the line to zero thus occluding part of a
-    dense tensor.
+    dense tensor. 
 
     Note:
         The current implementation will give imprecise results if the input tensor is not a square.

@@ -180,7 +180,8 @@ class SparseSslDM(SslDM):
                  drop_channel_prob: float = 0.0,
                  drop_channel_relative_freq: Iterable[float] = None,
                  n_crops_for_tissue_train: int = 50,
-                 overlap_for_tissue_test: float = 0.5,
+                 n_cuts_for_tissue_train: float = 0.5,
+                 fraction_patch_overlap_for_tissue_test: float = 0.0,
                  batch_size_per_gpu: int = 64,
                  **kargs):
         """
@@ -224,7 +225,8 @@ class SparseSslDM(SslDM):
         self._drop_channel_relative_freq = drop_channel_relative_freq
         self._n_element_min_for_crop = n_element_min_for_crop
         self._n_crops_for_tissue_train = n_crops_for_tissue_train
-        self._overlap_for_tissue_test = overlap_for_tissue_test
+        self._n_cuts_for_tissue_train = n_cuts_for_tissue_train
+        self._fraction_patch_overlap_for_tissue_test = fraction_patch_overlap_for_tissue_test
 
         # batch_size
         self._batch_size_per_gpu = batch_size_per_gpu
@@ -274,8 +276,11 @@ class SparseSslDM(SslDM):
         parser.add_argument("--n_crops_for_tissue_train", type=int, default=50,
                             help="The number of crops in each training epoch will be: n_tissue * n_crops. \
                                Set small for rapid prototyping")
-        parser.add_argument("--overlap_for_tissue_test", type=float, default=0.5,
-                            help="The stride size for generating tissue crops will be: global_size - global_size * overlap_for_tissue_test. \
+        parser.add_argument("--n_cuts_for_tissue_train", type=int, default=1,
+                            help="The number of Random Straight Cuts to apply during training transform. \
+                               Set small for rapid prototyping")
+        parser.add_argument("--fraction_patch_overlap_for_tissue_test", type=float, default=0.0,
+                            help="The stride size for generating tissue crops will be: global_size - global_size * fraction_patch_overlap_for_tissue_test. \
                                Set large for more accurate patch features. Set small for more disjoint patches.")
         parser.add_argument("--batch_size_per_gpu", type=int, default=64,
                             help="Batch size for EACH GPUs. Set small for rapid prototyping. \
@@ -324,12 +329,12 @@ class SparseSslDM(SslDM):
     def cropper_test(self) -> CropperSparseTensor:
         """ Cropper to be used at test time. This specify the cropping strategy to use at test time. """
         # TODO: delete
-        # stride = self._global_size - int(self._global_size * self._overlap_for_tissue_test)
+        # stride = self._global_size - int(self._global_size * self._fraction_patch_overlap_for_tissue_test)
         return CropperSparseTensor(
             strategy='tiling',
             crop_size=self._global_size,
             n_element_min=self._n_element_min_for_crop,
-            frac_overlap = self._overlap_for_tissue_test,
+            frac_overlap = self._fraction_patch_overlap_for_tissue_test,
             random_order=True,
         )
 
@@ -361,12 +366,55 @@ class SparseSslDM(SslDM):
             transform_after_stack=torchvision.transforms.CenterCrop(size=self.global_size),
         )
 
+    # @property
+    # def trsfm_train_global(self) -> TransformForList:
+    #     """
+    #     Global Transformation to be applied at train time.
+    #     This specify the data augmentation for the global crops.
+    #     """
+    #     return TransformForList(
+    #         transform_before_stack=torchvision.transforms.Compose([
+    #             DropoutSparseTensor(p=1.0, dropout_rate=self._drop_spot_probs),
+    #             SparseToDense(),
+    #             RandomGlobalIntensity(f_min=self._global_intensity[0], f_max=self._global_intensity[1])
+    #         ]),
+    #         transform_after_stack=torchvision.transforms.Compose([
+    #             torchvision.transforms.RandomRotation(
+    #                 degrees=(-180.0, 180.0),
+    #                 interpolation=torchvision.transforms.InterpolationMode.BILINEAR,
+    #                 expand=False,
+    #                 fill=0.0),
+    #             torchvision.transforms.CenterCrop(size=self._global_size),
+    #             RandomVFlip(p=0.5),
+    #             RandomHFlip(p=0.5),
+    #             torchvision.transforms.RandomResizedCrop(
+    #                 size=(self._global_size, self._global_size),
+    #                 scale=self._global_scale,
+    #                 ratio=(0.95, 1.05),
+    #                 interpolation=torchvision.transforms.InterpolationMode.BILINEAR),
+    #             RandomStraightCut(p=0.5, occlusion_fraction=self._occlusion_fraction),
+    #             DropChannel(p=self._drop_channel_prob, relative_frequency=self._drop_channel_relative_freq),
+    #             Rasterize(sigmas=self._rasterize_sigmas, normalize=False),
+    #         ])
+    #     )
+    
+    ## TODO: clean up
     @property
     def trsfm_train_global(self) -> TransformForList:
         """
         Global Transformation to be applied at train time.
         This specify the data augmentation for the global crops.
         """
+        
+        ##TODO: confirm 2 cuts works as expected
+        if self._n_cuts_for_tissue_train == 1:
+            n_RandomStraightCuts = RandomStraightCut(p=0.5, occlusion_fraction=self._occlusion_fraction)
+        elif self._n_cuts_for_tissue_train == 2:
+            n_RandomStraightCuts = torchvision.transforms.Compose([RandomStraightCut(p=0.5, occlusion_fraction=self._occlusion_fraction), RandomStraightCut(p=0.25, 
+                                                                    occlusion_fraction=self._occlusion_fraction)])
+        else:
+            raise Exception("Only 1 or 2 cuts for tissue train are allowed.")
+            
         return TransformForList(
             transform_before_stack=torchvision.transforms.Compose([
                 DropoutSparseTensor(p=1.0, dropout_rate=self._drop_spot_probs),
@@ -387,7 +435,7 @@ class SparseSslDM(SslDM):
                     scale=self._global_scale,
                     ratio=(0.95, 1.05),
                     interpolation=torchvision.transforms.InterpolationMode.BILINEAR),
-                RandomStraightCut(p=0.5, occlusion_fraction=self._occlusion_fraction),
+                n_RandomStraightCuts,
                 DropChannel(p=self._drop_channel_prob, relative_frequency=self._drop_channel_relative_freq),
                 Rasterize(sigmas=self._rasterize_sigmas, normalize=False),
             ])
@@ -680,7 +728,7 @@ class AnndataFolderDM(SparseSslDM):
         test_imgs, test_labels, test_metadatas = [], [], []
         for sp_img, label, fname in zip(all_sparse_images, all_labels, all_names):
             
-            sps_tmp, loc_x_tmp, loc_y_tmp = self.cropper_test(sp_img, n_crops=self._n_crops_for_tissue_test)
+            sps_tmp, loc_x_tmp, loc_y_tmp = self.cropper_test(sp_img, fraction_patch_overlap = self._fraction_patch_overlap_for_tissue_test) #n_crops=self._n_crops_for_tissue_test)
             labels = [label] * len(sps_tmp)
 
             ### add majority cell type label 

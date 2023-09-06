@@ -24,7 +24,7 @@ class CropperTensor(torch.nn.Module):
         crop_size: int = 224,
         strategy: str = 'random',
         stride: int = 200,
-        frac_overlap: float=0.5,
+        fraction_patch_overlap: float=0.5,
         n_crops: int = 10,
         random_order: bool = True,
         criterium_fn: Callable = None,
@@ -36,7 +36,7 @@ class CropperTensor(torch.nn.Module):
             strategy: str, can be either 'random' or 'tiling' or 'identity'
             stride: Used only when :attr:'strategy' is 'tiling'.
                 Displacement among consecutive sliding window. This allow to control the overlap between crops.
-            frac_overlap: Used only when :attr:'strategy' is 'tiling'.
+            fraction_patch_overlap: Used only when :attr:'strategy' is 'tiling'.
                 Used to compute stride.
             n_crops: int, the size of crops to generate from a single image.
             random_order: Used only when :attr:'strategy' is 'tiling'.
@@ -46,7 +46,7 @@ class CropperTensor(torch.nn.Module):
         super().__init__()
         self.crop_size_ = crop_size
         self.strategy_ = strategy
-        self.frac_overlap_ = frac_overlap
+        self.fraction_patch_overlap_ = fraction_patch_overlap
         self.stride_ = stride
         self.n_crops_ = n_crops
         self.random_order_ = random_order
@@ -68,18 +68,18 @@ class CropperTensor(torch.nn.Module):
             crop_size: int = None,
             strategy: str = None,
             stride: int = None,
-            frac_overlap: float = None,
+            fraction_patch_overlap: float = None,
             n_crops: int = None,
             random_order: bool = None,
             criterium_fn: Callable = None) -> (List[torch.Tensor], List[int], List[int]):
 
-        ## TODO: check change to frac_overlap / stride usage is done in a pythonic way
+        ## TODO: check change to fraction_patch_overlap / stride usage is done in a pythonic way
         
         # All parameters default to the one used during initialization if they are not specified except for stride which is computed
         crop_size = self.crop_size_ if crop_size is None else crop_size
         strategy = self.strategy_ if strategy is None else strategy
-        stride = crop_size - int(crop_size * frac_overlap) if stride is None else stride
-        frac_overlap = self.frac_overlap_ if stride is None else stride
+        fraction_patch_overlap = self.fraction_patch_overlap_ if fraction_patch_overlap is None else fraction_patch_overlap
+        stride = crop_size - int(crop_size * fraction_patch_overlap) if stride is None else stride
         n_crops = self.n_crops_ if n_crops is None else n_crops
         random_order = self.random_order_ if random_order is None else random_order
         criterium_fn = self.criterium_fn_ if criterium_fn is None else criterium_fn
@@ -323,8 +323,6 @@ class CropperSparseTensor(CropperTensor):
         
         ch, w_img, h_img = sparse_tensor.size()
 
-        print("stride:")
-        print(stride)
         if strategy == 'tiling':
             # generate a random starting point
             x_corner_list, y_corner_list = [], []
