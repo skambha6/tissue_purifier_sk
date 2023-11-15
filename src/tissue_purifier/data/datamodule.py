@@ -180,7 +180,8 @@ class SparseSslDM(SslDM):
                  drop_channel_prob: float = 0.0,
                  drop_channel_relative_freq: Iterable[float] = None,
                  n_crops_for_tissue_train: int = 50,
-                 n_cuts_for_tissue_train: float = 0.5,
+                 n_crops_for_tissue_test: int = 50,
+                 n_cuts_for_tissue_train: int = 1,
                  fraction_patch_overlap_for_tissue_test: float = 0.0,
                  batch_size_per_gpu: int = 64,
                  **kargs):
@@ -225,6 +226,7 @@ class SparseSslDM(SslDM):
         self._drop_channel_relative_freq = drop_channel_relative_freq
         self._n_element_min_for_crop = n_element_min_for_crop
         self._n_crops_for_tissue_train = n_crops_for_tissue_train
+        self._n_crops_for_tissue_test = n_crops_for_tissue_test
         self._n_cuts_for_tissue_train = n_cuts_for_tissue_train
         self._fraction_patch_overlap_for_tissue_test = fraction_patch_overlap_for_tissue_test
 
@@ -331,10 +333,11 @@ class SparseSslDM(SslDM):
         # TODO: delete
         # stride = self._global_size - int(self._global_size * self._fraction_patch_overlap_for_tissue_test)
         return CropperSparseTensor(
-            strategy='tiling',
+            strategy='random',
             crop_size=self._global_size,
             n_element_min=self._n_element_min_for_crop,
             frac_overlap = self._fraction_patch_overlap_for_tissue_test,
+            n_crops=self._n_crops_for_tissue_test,
             random_order=True,
         )
 
@@ -770,13 +773,24 @@ class AnndataFolderDM(SparseSslDM):
     def get_metadata_to_regress(self, metadata) -> Dict[str, float]:
         """ Extract one or more quantities to regress from the metadata """
         if self._metadata_to_regress is None:
-            regress_dict = {
-                "moran": float(metadata.moran),
-                "loc_x": float(metadata.loc_x),
-            }
             
+            ##TODO: add loc y to regression
+            
+            regress_dict = {
+                    "regress_loc_x": float(metadata.loc_x),
+                }
+            
+            if isinstance(metadata.moran,list) or isinstance(metadata.moran,torch.Tensor):
+                for ch in range(len(metadata.moran)):
+                    regress_dict["regress_moran_ch_" + str(ch)] = metadata.moran[ch].item()
+
+                regress_dict["regress_moran"] = float(metadata.moran.max().item())
+                
+            else:
+                regress_dict["regress_moran"] = float(metadata.moran)
+
             for ch in range(len(metadata.composition)):
-                regress_dict["ch_" + str(ch)] = metadata.composition[ch].item()
+                regress_dict["regress_ch_" + str(ch)] = metadata.composition[ch].item()
                 
             return regress_dict
         else:

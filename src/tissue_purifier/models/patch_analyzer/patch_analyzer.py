@@ -188,7 +188,7 @@ class SpatialAutocorrelation:
             # Here I deal with this edge case
             if denominator == 0.0:
                 scores[i] = 0.0
-
+        
         return scores.to(device=original_device)
 
     def _build_connectivity(self, coords: torch.Tensor, remove_diagonal: bool):

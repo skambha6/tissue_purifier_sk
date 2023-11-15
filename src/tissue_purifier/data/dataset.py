@@ -8,7 +8,7 @@ class MetadataCropperDataset(NamedTuple):
     f_name: Union[str, int]
     loc_x: Union[int, float]
     loc_y: Union[int, float]
-    moran: Union[float, None]
+    moran: Union[float, list, torch.Tensor, None]
     sample_status: Union[int, None]
     composition: Union[list, None]
 

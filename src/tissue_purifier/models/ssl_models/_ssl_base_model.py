@@ -7,6 +7,7 @@ from pytorch_lightning import LightningModule
 
 from sklearn.base import is_regressor, is_classifier
 from sklearn.model_selection import RepeatedStratifiedKFold, RepeatedKFold
+from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.linear_model import RidgeClassifierCV, RidgeCV
 
@@ -17,6 +18,8 @@ from tissue_purifier.utils.nms_util import NonMaxSuppression
 from tissue_purifier.utils.dict_util import (
     concatenate_list_of_dict,
     subset_dict)
+
+import numpy as np
 
 from tissue_purifier.utils.validation_util import (
     SmartPca,
@@ -130,6 +133,7 @@ def classify_and_regress(
         _X, _y = _manual_shuffle(_X, _y)
         _tmp_dict = {}
 
+        
         if n_splits > 1:
 
             rkf = RepeatedStratifiedKFold(n_splits=n_splits, n_repeats=n_repeats)
@@ -139,7 +143,8 @@ def classify_and_regress(
 
                 _tmp_dict["x_key"] = _tmp_dict.get("x_key", []) + [x_key]
                 _tmp_dict["y_key"] = _tmp_dict.get("y_key", []) + [y_key]
-                _tmp_dict["accuracy_train"] = _tmp_dict.get("accuracy_test", []) + [classifier.score(_X_train, _y_train)]
+                
+                _tmp_dict["accuracy_train"] = _tmp_dict.get("accuracy_train", []) + [classifier.score(_X_train, _y_train)]
                 _tmp_dict["accuracy_test"] = _tmp_dict.get("accuracy_test", []) + [classifier.score(_X_test, _y_test)]
             _df_tmp = pandas.DataFrame(_tmp_dict, index=numpy.arange(rkf.get_n_splits()))
 
@@ -184,11 +189,108 @@ def classify_and_regress(
     
     return df
 
+##TODO: finish this function
+def train_test_split_dict(world_dict: dict, 
+                          remove_overlap: bool, 
+                          val_iomin_threshold: float=False,
+                          stratify: bool=True,
+                          res: int=0.4, 
+                          train_size: float = 0.8,
+                          test_size: float = 0.2,
+                          random_state: int = 0):
+    """
+    Utility function to split dictionary into train and test dictionaries (that are optionally split spatially)
+    It takes a dictionary with patch-levle features and annotations
+    
+    Args:
+        world_dict: a dictionary with path-level features and annotations.
+            The dict must contains the keys "patches_xywh" and "classify_tissue_label".
+            It may contain additional keys starting in "feature_", "classify_" or "regress_".
+        remove_overlap: whether to conduct train/test split spatially (for example if patch tiling strategy to generate patch features was 'random')
+        val_iomin_threshold: threshold for the Intersection over Minimum. It must be in [0.0, 1.0).
+        stratify: whether to stratify by patch NCV clusters. Stratifies by tissue label by default.
+        res: Leiden cluster resolution for determining patch NCV clusters
+        train_size: size of train set
+        test_size: set of test set
+    """
+    
+    # compute the patch_to_patch overlap just one at the beginning
+    assert {"patches_xywh", "classify_tissue_label"}.issubset(world_dict.keys())
+    patches = world_dict["patches_xywh"]
+    
+    print(world_dict['patches_xywh'].shape)
+    
+    if remove_overlap:
+        initial_score = torch.rand_like(patches[:, 0].float())
+        tissue_ids = world_dict["classify_tissue_label"]
+        nms_mask_n, overlap_nn = NonMaxSuppression.compute_nm_mask(
+            score=initial_score,
+            ids=tissue_ids,
+            patches_xywh=patches,
+            iom_threshold=val_iomin_threshold)
+        binarized_overlap_nn = (overlap_nn > val_iomin_threshold).float()
+
+        # create a dictionary with only non-overlapping patches to test kn-regressor/classifier
+        nms_mask_n = NonMaxSuppression.perform_nms_selection(mask_overlap_nn=binarized_overlap_nn,
+                                                             score_n=torch.rand_like(initial_score),
+                                                             possible_n=torch.ones_like(initial_score).bool())
+        world_dict_subset = subset_dict(input_dict=world_dict, mask=nms_mask_n)
+        world_dict = world_dict_subset
+    
+    print(world_dict['patches_xywh'].shape)
+    
+    ## Cluster Patch NCVs
+    if stratify:
+        assert "ncv" in self._patch_properties_dict.keys(), \
+            "Compute Patch NCV first."
+
+        ## Cluster patch NCVs
+        patch_ncv = self._patch_properties_dict["ncv"]
+
+        assert np.array_equal(self._patch_properties_dict["ncv_patch_xywh"], self._patch_properties_dict[feature_xywh]), \
+            "NCV patch xywh does not match feature xywh"
+
+        smart_umap = SmartUmap(n_neighbors=25, preprocess_strategy='z_score', n_components=2, min_dist=0.5, metric='cosine')
+        embeddings_umap = smart_umap.fit_transform(patch_ncv)
+
+        umap_graph = smart_umap.get_graph()
+        smart_leiden = SmartLeiden(graph=umap_graph)
+
+        leiden_clusters = smart_leiden.cluster(resolution=res, partition_type='RBC')
+        
+    ## Split patches into train/test, stratifying by NCV clusters
+    ## write custom train_test_split function in utils
+    
+    all_indices = np.arange(world_dict['patches_xywh'].shape[0])
+
+    train_indices, test_indices = train_test_split(all_indices, stratify=world_dict['classify_tissue_label'], random_state=random_state)
+
+    train_mask = torch.tensor(np.isin(all_indices, train_indices))
+    test_mask = torch.tensor(np.isin(all_indices, test_indices))
+    
+    train_features_dict = subset_dict(world_dict, train_mask)
+    test_features_dict = subset_dict(world_dict, test_mask)
+    # ##TODO: see why this isn't working as expected
+    # if stratify:
+    #     try:
+    #         train_patch_xywh, test_patch_xywh = train_test_split(self._patch_properties_dict[feature_xywh], train_size=train_size, test_size=test_size, stratify=leiden_clusters,random_state=random_state)
+    #     except ValueError: #ValueError as ve: ##TODO: specify for the appropriate exception here
+    #         # raise Exception("ValueError: " + str(ve))
+    #         raise Exception("Not enough samples in each cluster to split the data. Try a smaller res")
+    # else:
+    #     train_patch_xywh, test_patch_xywh = train_test_split(self._patch_properties_dict[feature_xywh], train_size=train_size, test_size=test_size,
+    #                                                         random_state=random_state)
+        
+    return train_features_dict, test_features_dict
+        
+
+    
+
 
 def knn_classification_regression(world_dict: dict, val_iomin_threshold: float):
     """
     Utility function to perform knn-based classification and regression.
-    It takes a dictionaries with path-level features and annotations.
+    It takes a dictionary with patch-level features and annotations.
     A set of (weakly) overlapping patches (with Intersection over Minimum smaller than the assigned threshold)
     is selected. A knn classifier/regressor is trained to
     predict the various annotations starting from the features.

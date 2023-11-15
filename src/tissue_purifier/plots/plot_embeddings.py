@@ -67,6 +67,7 @@ def plot_embeddings(
 
     # create anndata with annotations and embeddings
     adata = AnnData(obs=df)
+    
     adata.obsm[embedding_key] = cloned_dict[embedding_key]
 
     # leverage anndata embedding capabilities
