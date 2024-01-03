@@ -33,7 +33,7 @@ class CropperTensor(torch.nn.Module):
         """
         Args:
             crop_size: int, the size in pixel of the sliding tiling windows
-            strategy: str, can be either 'random' or 'tiling' or 'identity'
+            strategy: str, can be either 'random' or 'tiling' or 'identity' or 'spot_level'
             stride: Used only when :attr:'strategy' is 'tiling'.
                 Displacement among consecutive sliding window. This allow to control the overlap between crops.
             fraction_patch_overlap: Used only when :attr:'strategy' is 'tiling'.
@@ -266,7 +266,7 @@ class CropperSparseTensor(CropperTensor):
         ch, w_img, h_img = sparse_tensor.size()
 
         x_patch, y_patch, w_patch, h_patch = patches_xywh.chunk(chunks=4, dim=-1)  # each one has shape (batch, 1)
-
+        
         mask = (x_pixel >= x_patch) * \
                (x_pixel < x_patch + w_patch) * \
                (y_pixel >= y_patch) * \
@@ -278,15 +278,26 @@ class CropperSparseTensor(CropperTensor):
         for n in range(mask.shape[0]):
             mask_n = mask[n]  # shape (n_element)
             codes_n = codes[mask_n]
+            # print("x_pixel:")
+            # print(x_pixel)
             x_pixel_n = x_pixel[mask_n] - x_patch[n, 0]
+            # print("x_pixel_n:")
+            # print(x_pixel_n)
             y_pixel_n = y_pixel[mask_n] - y_patch[n, 0]
             values_n = values[mask_n]
+
+            # print(ch)
+            # ## assert these are ints and if not cast to ints
+            # print("w_patch:")
+            # print(w_patch[n,0])
+            # print("h_patch:")
+            # print(h_patch[n,0])
 
             crops.append(
                 torch.sparse_coo_tensor(
                     indices=torch.stack((codes_n, x_pixel_n, y_pixel_n), dim=0),
                     values=values_n,
-                    size=(ch, w_patch[n, 0], h_patch[n, 0]),
+                    size=(ch, int(w_patch[n, 0]), int(h_patch[n, 0])),
                     device=x_pixel.device,
                     requires_grad=False,
                 ).coalesce()
@@ -324,7 +335,6 @@ class CropperSparseTensor(CropperTensor):
         ch, w_img, h_img = sparse_tensor.size()
 
         if strategy == 'tiling':
-            # generate a random starting point
             x_corner_list, y_corner_list = [], []
             i0 = torch.randint(low=-crop_size, high=0, size=[1]).item()
             j0 = torch.randint(low=-crop_size, high=0, size=[1]).item()
@@ -366,6 +376,8 @@ class CropperSparseTensor(CropperTensor):
                        (y_pixel >= y_corner) * \
                        (y_pixel < y_corner + crop_size)  # shape: (n_crops * SAFETY_FACTOR, n_elements)
 
+        ## TODO: write this as new function
+        ## TODO: or do this instead:
 #         ### FIX THIS FOR PCM MAPPING #####
         if torch.any(values < 1.0): ## if values are probabilistic, change to one hot for purpose of determining valid crop
                                     ## possibly change this to input flag in config dict 

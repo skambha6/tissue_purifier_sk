@@ -10,6 +10,10 @@ from tissue_purifier.data.dataset import CropperSparseTensor
 from tissue_purifier.utils.validation_util import SmartPca, SmartUmap, SmartLeiden
 from tissue_purifier.utils.nms_util import NonMaxSuppression
 from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold
+from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import RepeatedKFold
+from sklearn.model_selection import RepeatedStratifiedKFold
 from scanpy import AnnData
 import matplotlib.cm
 import matplotlib.colors
@@ -341,28 +345,36 @@ class SparseImage:
         for key in keys:
             _ = self._image_properties_dict.pop(key, None)
             
-    def get_spot_dictionary(self):
+    @property
+    def spot_properties_dict(self):
         """
         Return spot_properties_dictionary.
 
         """
         return self._spot_properties_dict
     
-    def get_patch_dictionary(self):
+    @property
+    def patch_properties_dict(self):
         """
         Return patch_properties_dictionary.
 
         """
         return self._patch_properties_dict
 
-    def get_image_dictionary(self):
+    @property
+    def image_properties_dict(self):
         """
         Return image_properties_dictionary.
 
-        Args:
-            keys: the list of keys to remove from the image dictionary
         """
         return self._image_properties_dict
+    
+    @property
+    def pixel_size(self):
+        """
+        Return pixel size
+        """
+        return self._pixel_size
         
     def pixel_to_raw(
             self,
@@ -940,6 +952,7 @@ class SparseImage:
         elif strategy == 'tiling':
             ## TODO: deal with potential batch size / GPU memory issues with tiling method
             crops, x_locs, y_locs = datamodule.cropper_test(self.data, strategy=strategy, fraction_patch_overlap = fraction_patch_overlap)
+
             patches_x += x_locs
             patches_y += y_locs
             patches_w += [crop.shape[-2] for crop in crops]
@@ -1018,8 +1031,6 @@ class SparseImage:
                 nms_mask_n = NonMaxSuppression.perform_nms_selection(mask_overlap_nn=binarized_overlap_nn,
                                                                      score_n=torch.rand_like(initial_score),
                                                                      possible_n=torch.ones_like(initial_score).bool())
-
-            
                 
                 patches = patches[nms_mask_n, :, :, :]
                 features = features[nms_mask_n, :]
@@ -1064,6 +1075,262 @@ class SparseImage:
             return patches
         
         
+        
+        
+        
+        
+    def compute_spot_features(self, feature_name: str,
+            datamodule: AnndataFolderDM,
+            model: torch.nn.Module,
+            apply_transform: bool = True,
+            batch_size: int = 64):
+        
+        # set the model into eval mode
+        was_original_in_training_mode = model.training
+        model.eval()
+        
+        ## iterate over spots
+        
+        num_spots = self._spot_properties_dict["x_key"].shape[0]
+        
+        list_of_patch_xywh = []
+        for spot_ind in range(num_spots):
+            
+            ## convert spot coordinate to image coordinate
+            
+            # print(self.x_raw)
+            # print(self.x_raw[spot_ind])
+            
+            x_raw = torch.tensor(self.x_raw[spot_ind]).float()
+            y_raw = torch.tensor(self.y_raw[spot_ind]).float()
+            x_pixel, y_pixel = self.raw_to_pixel(x_raw=x_raw, y_raw=y_raw)
+            
+            # Convert the coordinates and round to the closest integer
+            # print(x_pixel)
+            ix = torch.round(x_pixel).long()
+            # print(ix)
+            iy = torch.round(y_pixel).long()
+        
+            ## todo: replace with variable
+            width = datamodule.global_size
+            height = datamodule.global_size
+            
+            
+            ## for each spot, define patch centered at that spot
+            patch_xywh = torch.tensor([(ix - (width // 2)), (iy - (height // 2)), width, height]).unsqueeze(0)
+            
+            list_of_patch_xywh.append(patch_xywh)
+            
+        patches_xywh = torch.cat(list_of_patch_xywh, dim=0)
+
+        ## copy sparse image to cpu before passing in if not already on cpu
+        if self.data.device != 'cpu':
+            data_cpu = self.data.clone().detach().cpu()
+        
+        crops, x_locs, y_locs = CropperSparseTensor.reapply_crops(data_cpu, patches_xywh)
+        
+        ## check if crops are valid
+        
+        list_of_n_elements = [len(crop.values()) for crop in crops]   
+        ## TODO: replace with criterium_fn callable?
+        valid_crops = np.array([n_elements >= datamodule.n_element_min_for_crop for n_elements in list_of_n_elements]) 
+        
+        ## compute features for crops
+        
+        all_features, all_crops = [], []
+        n_patches = 0
+        patches_x, patches_y, patches_w, patches_h = [], [], [], []
+        n_patches_max = patches_xywh.shape[0]
+            
+        if torch.cuda.is_available():
+            model = model.cuda()
+            
+        while n_patches < n_patches_max:
+            n_tmp = min(batch_size, n_patches_max - n_patches)
+
+            crops_tmp = crops[n_patches:n_patches+n_tmp]
+            
+            patches_tmp = datamodule.trsfm_test(crops_tmp)
+            
+            if torch.cuda.is_available():
+                patches_tmp = patches_tmp.cuda()
+                
+            features_tmp = model(patches_tmp)
+            if isinstance(features_tmp, torch.Tensor):
+                all_features.append(features_tmp)
+            elif isinstance(features_tmp, numpy.ndarray):
+                all_features.append(torch.from_numpy(features_tmp))
+            elif isinstance(features_tmp, list):
+                all_features += features_tmp
+            else:
+                raise NotImplementedError
+
+            all_crops += crops
+            
+            n_patches = n_patches + n_tmp
+            
+        ## write to spot dictionary at the end 
+        all_features = torch.cat(all_features,dim=0)
+        self.write_to_spot_dictionary(key=feature_name + "_spot_features", values=all_features)
+        self.write_to_spot_dictionary(key=feature_name + "_spot_features_valid", values=valid_crops)
+        
+        # put back the model in the state it was original
+        if was_original_in_training_mode:
+            model.train()
+            
+        print("Finished computing spot features.")
+    
+    
+    def compute_patch_ncv_clusters(self, feature_xywh: str=None, res: int=0.4):
+        """
+            Utility function to compute leiden clusters with particular resolution on patch NCV vectors
+
+        """
+                    
+        assert "patch_ncv" in self._patch_properties_dict.keys(), \
+            "Compute Patch NCV first."
+
+        ## Cluster patch NCVs
+        patch_ncv = self._patch_properties_dict["patch_ncv"]
+
+        assert np.array_equal(self._patch_properties_dict["patch_ncv_patch_xywh"], self._patch_properties_dict[feature_xywh]), \
+            "NCV patch xywh does not match feature xywh"
+
+        smart_umap = SmartUmap(n_neighbors=25, preprocess_strategy='z_score', n_components=2, min_dist=0.5, metric='cosine')
+        embeddings_umap = smart_umap.fit_transform(patch_ncv)
+
+        umap_graph = smart_umap.get_graph()
+        smart_leiden = SmartLeiden(graph=umap_graph)
+
+        leiden_clusters = smart_leiden.cluster(resolution=res, partition_type='RBC')
+
+        return leiden_clusters
+        
+    # def spot_train_test_split(self, feature_xywh: str=None,
+    #                             res: int=0.4, 
+    #                             stratify: bool=True,
+    #                             write_to_spot_dictionary: bool=True, 
+    #                             return_patches: bool=True,
+    #                             train_size: float=0.8,
+    #                             test_size: float=0.2,
+    #                             random_state: int = 0): #-> dict, dict:
+        
+        ## split puck into n spatially distinct regions so that each region has approximately same spots?
+        
+        # v1:
+        # split into halves across y=x line; 
+        
+        # distance from bead to y=x line
+         
+        # v2:
+        ## next step is to "center the puck" and then split into quadrants; each quadrant is a test fold; discard spots that are within patch_width from segment border
+        
+        ## get median x,y coordinate -> "centroid" of puck
+        
+        ## draw y = y_median and x = x_median lines across this centroid
+        
+        ## define 4 test folds this way
+        
+        # v3:
+        ## then generalize by 360/n; circular segments
+        
+    ## TODO: double check +/- patch_width, and that x/y are not swapped
+    ## plot using scatter function to this
+    def spot_train_test_split(self, patch_size: int):
+        ### splits puck into quadrants, each quadrant is a test fold once, so there are 4 train_test_fold_splits
+        ### automate this into a for loop?
+        
+        
+        spots_x_key = self._spot_properties_dict["x_key"]
+        spots_y_key = self._spot_properties_dict["y_key"]
+        
+        
+        x_median = np.median(spots_x_key)
+        y_median = np.median(spots_y_key)
+              
+
+        ## patch width is width used to compute spot features
+        ## patch height is height used to compute spot features
+        x_boundary = self._pixel_size * patch_size
+        y_boundary = self._pixel_size * patch_size
+        
+        
+        ## fold 1
+        test_fold_1_inds = np.where((spots_x_key > x_median) & (spots_y_key > y_median))[0]
+
+        train_fold_1_inds_1 = np.where((spots_x_key < (x_median - x_boundary)))[0]
+        train_fold_1_inds_2 = np.where(spots_y_key < (y_median - y_boundary))[0]
+
+
+        train_fold_1_inds = np.concatenate((train_fold_1_inds_1, train_fold_1_inds_2))
+
+        train_test_fold_1 = -1*np.ones(spots_x_key.shape)
+
+        ## 0 train
+        ## 1 test
+        ## -1 discard
+        train_test_fold_1[train_fold_1_inds] = 0
+        train_test_fold_1[test_fold_1_inds] = 1
+
+
+        self.write_to_spot_dictionary(key = 'train_test_fold_1', values=train_test_fold_1, overwrite=True)
+
+        ## fold 2 
+        test_fold_2_inds = np.where(np.logical_and(spots_x_key > x_median,spots_y_key < y_median))[0]
+
+        train_fold_2_inds_1 = np.where((spots_x_key < (x_median - x_boundary)))[0]
+        train_fold_2_inds_2 = np.where((spots_y_key > (y_median + y_boundary)))[0]
+        train_fold_2_inds = np.concatenate((train_fold_2_inds_1, train_fold_2_inds_2))
+
+        train_test_fold_2 = -1*np.ones(spots_x_key.shape)
+
+        ## 0 train
+        ## 1 test
+        ## -1 discard
+        train_test_fold_2[train_fold_2_inds] = 0
+        train_test_fold_2[test_fold_2_inds] = 1
+
+
+        self.write_to_spot_dictionary(key = 'train_test_fold_2', values=train_test_fold_2, overwrite=True)
+
+
+        ## fold 3
+        test_fold_3_inds = np.where(np.logical_and(spots_x_key < x_median,spots_y_key > y_median))[0]
+
+        train_fold_3_inds_1 = np.where((spots_x_key > (x_median + x_boundary)))[0]
+        train_fold_3_inds_2 = np.where((spots_y_key < (y_median - y_boundary)))[0]
+        train_fold_3_inds = np.concatenate((train_fold_3_inds_1, train_fold_3_inds_2))
+
+        train_test_fold_3 = -1*np.ones(spots_x_key.shape)
+
+        ## 0 train
+        ## 1 test
+        ## -1 discard
+        train_test_fold_3[train_fold_3_inds] = 0
+        train_test_fold_3[test_fold_3_inds] = 1
+
+        self.write_to_spot_dictionary(key = 'train_test_fold_3', values=train_test_fold_3, overwrite=True)
+
+
+        ## fold 4
+        test_fold_4_inds = np.where(np.logical_and(spots_x_key < x_median,spots_y_key < y_median))[0]
+
+        train_fold_4_inds_1 = np.where((spots_x_key > (x_median + x_boundary)))[0]
+        train_fold_4_inds_2 = np.where((spots_y_key > (y_median + y_boundary)))[0]
+        train_fold_4_inds = np.concatenate((train_fold_4_inds_1, train_fold_4_inds_2))
+
+        train_test_fold_4 = -1*np.ones(spots_x_key.shape)
+
+        ## 0 train
+        ## 1 test
+        ## -1 discard
+        train_test_fold_4[train_fold_4_inds] = 0
+        train_test_fold_4[test_fold_4_inds] = 1
+
+        self.write_to_spot_dictionary(key = 'train_test_fold_4', values=train_test_fold_4, overwrite=True)
+
+        
+        
     def patch_train_test_split(self, feature_xywh: str=None,
                                 res: int=0.4, 
                                 stratify: bool=True,
@@ -1089,22 +1356,7 @@ class SparseImage:
         
         ## Cluster Patch NCVs
         if stratify:
-            assert "ncv" in self._patch_properties_dict.keys(), \
-                "Compute Patch NCV first."
-
-            ## Cluster patch NCVs
-            patch_ncv = self._patch_properties_dict["ncv"]
-
-            assert np.array_equal(self._patch_properties_dict["ncv_patch_xywh"], self._patch_properties_dict[feature_xywh]), \
-                "NCV patch xywh does not match feature xywh"
-
-            smart_umap = SmartUmap(n_neighbors=25, preprocess_strategy='z_score', n_components=2, min_dist=0.5, metric='cosine')
-            embeddings_umap = smart_umap.fit_transform(patch_ncv)
-
-            umap_graph = smart_umap.get_graph()
-            smart_leiden = SmartLeiden(graph=umap_graph)
-
-            leiden_clusters = smart_leiden.cluster(resolution=res, partition_type='RBC')
+            leiden_clusters = self.compute_patch_ncv_clusters(feature_xywh, res)
 
         ## Split patches into train/test, stratifying by NCV clusters
         ## write custom train_test_split function in utils
@@ -1149,8 +1401,9 @@ class SparseImage:
                                 random_state: int = 0): #-> dict, dict:
         
         """
-        Split patch locations under feature into train/test/val split. Can stratify by patch cell composition (run compute_patch_ncv first). Useful for splitting data  
-        without spatial overlap (if patches are computed with no overlap) for downstream regression tasks.
+        Split patch locations under feature into train/test/val split. Can stratify by patch cell composition (run 
+        compute_patch_ncv first). Useful for splitting data  without spatial overlap (if patches are computed with no 
+        overlap) for downstream regression tasks.
 
         Args:
             feature_xywh: Patch locations that would like to be split
@@ -1159,22 +1412,7 @@ class SparseImage:
         
         ## Cluster Patch NCVs
         if stratify:
-            assert "ncv" in self._patch_properties_dict.keys(), \
-                "Compute Patch NCV first."
-
-            ## Cluster patch NCVs
-            patch_ncv = self._patch_properties_dict["ncv"]
-
-            assert np.array_equal(self._patch_properties_dict["ncv_patch_xywh"], self._patch_properties_dict[feature_xywh]), \
-                "NCV patch xywh does not match feature xywh"
-
-            smart_umap = SmartUmap(n_neighbors=25, preprocess_strategy='z_score', n_components=2, min_dist=0.5, metric='cosine')
-            embeddings_umap = smart_umap.fit_transform(patch_ncv)
-
-            umap_graph = smart_umap.get_graph()
-            smart_leiden = SmartLeiden(graph=umap_graph)
-
-            leiden_clusters = smart_leiden.cluster(resolution=res, partition_type='RBC')
+            leiden_clusters = self.compute_patch_ncv_clusters(feature_xywh, res)
 
         ## Split patches into train/test, stratifying by NCV clusters
         ## write custom train_test_split function in utils
@@ -1204,6 +1442,7 @@ class SparseImage:
             train_patch_xywh, test_and_val_patch_xywh = train_test_split(self._patch_properties_dict[feature_xywh], train_size = train_size, test_size = test_and_val_size_norm0)
             val_patch_xywh, test_patch_xywh = train_test_split(test_and_val_patch_xywh, train_size=val_size_norm1, test_size=test_size_norm1)
         
+        ## TODO: fix this (incorrect, gives 000 1111 222); need to find actual indices of train/test/val patches
         train_test_val_id = np.concatenate((np.zeros(train_patch_xywh.shape[0]), np.ones(test_patch_xywh.shape[0]), 2*np.ones(val_patch_xywh.shape[0])))
     
         sample_patch_xywh = np.concatenate((train_patch_xywh, test_patch_xywh, val_patch_xywh))
@@ -1222,6 +1461,75 @@ class SparseImage:
             return self._patch_properties_dict['train_test_val_split_id'], self._patch_properties_dict['train_test_val_split_id_patch_xywh']
         
     ## TODO: add documentation to this function
+    def kfold_patch_train_test_split(self, feature_xywh: str=None,
+                                res: int=0.4, 
+                                stratify: bool=True,
+                                n_splits: int=5,
+                                write_to_spot_dictionary: bool = True,
+                                random_state: int = 0):
+        
+        """
+        Split patch locations under feature into kfold train/test splits. Can stratify by patch cell composition (run compute_patch_ncv first). Useful for splitting data without spatial overlap (if patches are computed with no overlap) for downstream regression tasks.
+
+        Args:
+            feature_xywh: Patch locations that would like to be split
+            res: Leiden cluster resolution for determining patch NCV clusters
+        """
+        
+        
+        ## Cluster Patch NCVs
+        if stratify:
+            leiden_clusters = self.compute_patch_ncv_clusters(feature_xywh, res)
+        
+        if stratify:
+            # try:
+            skf = StratifiedKFold(n_splits = n_splits, shuffle=True, random_state=random_state)
+            n = skf.get_n_splits(self._patch_properties_dict[feature_xywh],leiden_clusters)
+            for i, (train_index, test_index) in enumerate(skf.split(self._patch_properties_dict[feature_xywh],leiden_clusters)):
+                train_test_id = -1 * np.ones(self._patch_properties_dict[feature_xywh].shape[0])
+                train_test_id[train_index] = 0
+                train_test_id[test_index] = 1
+                self.write_to_patch_dictionary(key=f"train_test_split_fold_{i}_id", values=train_test_id,
+                    patches_xywh = self._patch_properties_dict[feature_xywh], overwrite=True)
+                
+                ## Write to spot dictionary
+                if write_to_spot_dictionary:
+                     self.transfer_patch_to_spot(
+                        keys_to_transfer=f"train_test_split_fold_{i}_id",
+                        overwrite=True)
+            # except ValueError:
+            #     raise Exception("Not enough samples in each cluster to split the data. Try a smaller res or adjusting train/test/val size")
+        else:
+            kf = KFold(n_splits = n_splits, shuffle=True, random_state=random_state)
+            n = kf.get_n_splits(self._patch_properties_dict[feature_xywh])
+            train_index, test_index = kf.split(self._patch_properties_dict[feature_xywh])
+            for i, (train_index, test_index) in enumerate(skf.split(self._patch_properties_dict[feature_xywh])):
+                train_test_id = -1 * np.ones(self._patch_properties_dict[feature_xywh].shape[0])
+                train_test_id[train_index] = 0
+                train_test_id[test_index] = 1
+                self.write_to_patch_dictionary(key=f"train_test_split_fold_{i}_id", values=train_test_id,
+                    patches_xywh = self._patch_properties_dict[feature_xywh], overwrite=True)
+                
+            ## Write to spot dictionary
+            if write_to_spot_dictionary:
+                 self.transfer_patch_to_spot(
+                    keys_to_transfer=f"train_test_split_fold_{i}_id",
+                    overwrite=True)
+            
+            
+#     ## TODO: add documentation to this function
+#     ## TODO: change; repeat needs to be over computing patches/patch features, not over the splits 
+#     def repeated_kfold_patch_train_test_split(self, feature_xywh: str=None,
+#                                 res: int=0.4, 
+#                                 stratify: bool=True,
+#                                 n_splits: int=5,
+#                                 n_repeats: int=3,
+#                                 write_to_spot_dictionary: bool=True, 
+#                                 return_patches: bool=True,
+#                                 random_state: int = 0):
+            
+            
+        
     
     ## TODO: add documentation to this function
     def get_spot_dictionary_subset_patch(self,

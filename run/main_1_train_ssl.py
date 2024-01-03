@@ -10,6 +10,7 @@ from datetime import timedelta
 
 import pytorch_lightning as pl
 from pytorch_lightning.plugins import DDPPlugin
+from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.profiler import SimpleProfiler, PassThroughProfiler, AdvancedProfiler
 from pytorch_lightning.trainer import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
@@ -187,8 +188,10 @@ def initialization(
         save_on_train_epoch_end=True,
         save_last=False,
         # the following 2 are mutually exclusive. Determine how frequently to save
-        train_time_interval=timedelta(minutes=new_dict["checkpoint_interval_minutes"]),
-        # every_n_epochs=3,
+        # train_time_interval=timedelta(minutes=new_dict["checkpoint_interval_minutes"]),
+        every_n_epochs=new_dict["checkpoint_interval_epochs"],
+        
+        save_top_k=-1 ## save all periodic checkpoints
     )
 
     # save ckpt at the end of training
@@ -200,16 +203,17 @@ def initialization(
     )
     ckpt_train_end.CHECKPOINT_NAME_LAST = 'my_checkpoint_last'  # the extension .ckpt will be added automatically
     
+    ## TODO: check if accelerator='dp' is fine with single gpu
     pl_trainer = Trainer(
         weights_save_path="saved_ckpt",
         profiler=profiler,
-        num_nodes=num_processes,  # number of different machines, FOr us this is 1
-        #num_nodes=2, ## more nodes for distributed training ##TODO: set this automatically to machine specs
+        # num_nodes=num_processes,  # number of different machines, FOr us this is 1
+        num_nodes=1, ##TODO: set this automatically to machine specs
         accelerator='gpu',#accelerator,
         gpus=new_dict["gpus"],
         check_val_every_n_epoch=new_dict["check_val_every_n_epoch"],
         callbacks=[ckpt_train_end, ckpt_train_interval, ckpt_save_best, lr_monitor],
-        strategy=strategy,
+        strategy = strategy,
         num_sanity_val_steps=0,
         # debugging
         # fast_dev_run=True,
@@ -220,7 +224,7 @@ def initialization(
         # other stuff
         logger=pl_neptune_logger,
         log_every_n_steps=100,
-        num_processes=num_processes,
+        num_processes=new_dict["gpus"], ## needs to be same as number of gpus otherwise client socket time out error
         sync_batchnorm=sync_batchnorm,
         precision=precision,  # if using P100 GPU reduce to 16 (half-precision) to have massive speedup
         # If model uses automatic_optimization -> you can use gradient clipping in the trainer.

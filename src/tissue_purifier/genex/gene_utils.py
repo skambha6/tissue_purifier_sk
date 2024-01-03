@@ -25,7 +25,7 @@ def _make_labels(y: Union[torch.Tensor, numpy.ndarray, List[Any]]) -> (torch.Ten
     return labels, y_to_ids
 
 def filter_anndata(anndata: AnnData,
-        fc_bc_min_umi: int = 500,                  # filter cells with too few UMI
+        fc_bc_min_umi: int = 200,                  # filter cells with too few UMI
         fc_bc_max_umi: int = 3000,                 # filter cells with too many UMI
         fc_bc_min_n_genes_by_counts: int = 10,     # filter cells with too few GENES
         fc_bc_max_n_genes_by_counts: int = 2500,   # filter cells with too many GENES
@@ -33,7 +33,7 @@ def filter_anndata(anndata: AnnData,
         fctype_bc_min_cells_absolute = 100,        # filter cell-types which are too RARE in absolute number
         fctype_bc_min_cells_frequency = 0.01,      # filter cell-types which are too RARE in relative abundance
         fg_bc_min_pct_cells_by_counts: int = 10,   # filter genes which appear in too few percentage of CELLS
-        fg_bc_high_var: int = 1000,                # filter genes to top n highly variable genes
+        fg_bc_high_var: int = None,                # filter genes to top n highly variable genes
         cell_type_key: str = None):      
 
         ## add metrics
@@ -61,11 +61,13 @@ def filter_anndata(anndata: AnnData,
         anndata = anndata[:, anndata.var["pct_cells_by_counts"] > fg_bc_min_pct_cells_by_counts]
         
         ## filter to high var genes
-        anndata_norm = pp.normalize_total(anndata, copy=True)
-        anndata_log = pp.log1p(anndata_norm, copy=True)
-        pp.highly_variable_genes(anndata_log, n_top_genes=fg_bc_high_var)
-        anndata = anndata[:,anndata_log.var['highly_variable']]
+        if fg_bc_high_var is not None:
+            anndata_norm = pp.normalize_total(anndata, copy=True)
+            anndata_log = pp.log1p(anndata_norm, copy=True)
+            pp.highly_variable_genes(anndata_log, n_top_genes=fg_bc_high_var)
+            anndata = anndata[:,anndata_log.var['highly_variable']]
         
+        print(anndata)
         
         return anndata
 

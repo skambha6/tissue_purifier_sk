@@ -314,6 +314,13 @@ class SparseSslDM(SslDM):
     def n_local_crops(self) -> int:
         """ Number of local crops for each image to use for training (used only for Dino). """
         return self._n_local_crops
+    
+    @property
+    def n_element_min_for_crop(self) -> int:
+        """
+        Minimum number of beads/cells in a crop
+        """
+        return self._n_element_min_for_crop
 
     # TODO: delete this
     # @property
@@ -550,7 +557,6 @@ class SparseSslDM(SslDM):
         self._dataset_train = None
         self._dataset_test = None
         raise NotImplementedError
-
 
 class AnndataFolderDM(SparseSslDM):
     """
@@ -799,7 +805,6 @@ class AnndataFolderDM(SparseSslDM):
     def setup(self, stage: Optional[str] = None) -> None:
         list_imgs, list_labels, list_metadata = torch.load(os.path.join(self._data_folder, "train_dataset.pt"))
         print("read the file {}".format(os.path.join(self._data_folder, "train_dataset.pt")))
-
         list_imgs = [img.coalesce().cpu() for img in list_imgs]
         self._dataset_train = CropperDataset(
             imgs=list_imgs,

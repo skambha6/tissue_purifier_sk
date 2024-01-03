@@ -150,6 +150,7 @@ if __name__ == '__main__':
             sparse_img = sparse_img.cpu()
             model = model.cpu()
 
+        print("Computing ncv")
         # compute simple ncv
         if config_dict_["ncv_k"] is not None:
             for k in config_dict_["ncv_k"]:
@@ -158,14 +159,16 @@ if __name__ == '__main__':
             for r in config_dict_["ncv_r"]:
                 sparse_img.compute_ncv(feature_name="ncv_r{}".format(r), r=r)
 
+        print("Computing patch features")
         # compute the ssl features
         ##TODO: incorporate batch size into this function
         sparse_img.compute_patch_features(
             feature_name=config_dict_["feature_key"],
+            strategy = 'tiling',
             model=model,
             datamodule=dm,
             batch_size=64,
-            frac_overlap=config_dict_["frac_overlap"], ## add this to the config_dict
+            fraction_patch_overlap=0.75, #config_dict_["overlap_for_tissue_test"], ## add this to the config_dict
             overwrite=True
         )
         sparse_img.transfer_patch_to_spot(keys_to_transfer=[config_dict_["feature_key"]],
@@ -175,17 +178,28 @@ if __name__ == '__main__':
                                           strategy_image_to_spot=config_dict_["strategy_image_to_spot"])
 
         ## run spatial train_test_split at patch level
-        _ = sparse_img.patch_train_test_split(feature_xywh=config_dict_["feature_key"] + "_patch_xywh",
+        _ = sparse_img.patch_train_test_val_split(feature_xywh=config_dict_["feature_key"] + "_patch_xywh",
                                     res=config_dict_["ncv_patch_cluster_res"], 
                                     stratify=True,
                                     write_to_spot_dictionary=True, 
                                     return_patches=True)
         
+        print("Computing spot features")
+        ## TODO: set batch size as user hyperparameter
+        sparse_img.compute_spot_features(feature_name=config_dict_["feature_key"] + "_spot_features",
+            datamodule=dm,
+            model=model,
+            batch_size=1024)
+            
+        print("Computing spot train test split")
+        ## do spot train test split
+        sparse_img.spot_train_test_split(patch_size=dm.global_size.cpu())
         
         # remove the intermediate results in the patch_dict and image_dict and save the new anndata to file
         sparse_img.clear_dicts(patch_dict=True, image_dict=True)
         new_anndata = sparse_img.to_anndata(export_full_state=True)
         
+        ## TODO
         out_file_name = fname[:-5] + "_featurized.h5ad" ##user optional suffix here
         
         out_file=os.path.join(config_dict_["anndata_out"], out_file_name)

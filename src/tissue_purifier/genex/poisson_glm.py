@@ -11,6 +11,12 @@ from tissue_purifier.genex.gene_utils import GeneDataset # relat0ive vs absolute
 from sklearn.linear_model import PoissonRegressor
 from sklearn.model_selection import GridSearchCV
 from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler
+
+from sklearn.metrics import d2_tweedie_score, make_scorer
+d2_poisson_score = make_scorer(d2_tweedie_score, power=1)
+
+from sklearn._loss.loss import HalfPoissonLoss
 
 
 class GeneRegression:
@@ -28,6 +34,8 @@ class GeneRegression:
         self._umi_scaling = umi_scaling
         self._cell_type_prop_scaling = cell_type_prop_scaling
         
+        self._scaler = StandardScaler() # MinMaxScaler()
+        
         ## assert umi scaling and cell type prop scaling are integers > 0
         
     def _get_regression_X(self, dataset) -> np.array:
@@ -35,11 +43,21 @@ class GeneRegression:
         counts_ng = dataset.counts.long()
         cell_type_ids = dataset.cell_type_ids.long()
         total_umi_n = counts_ng.sum(dim=-1)
-        covariates_nl = dataset.covariates.float().cpu()
+        covariates_nl = dataset.covariates.clone().float().cpu()
         cell_type_props_nk = self._cell_type_prop_scaling*dataset.cell_type_props
         
-        log_total_umi_n1 = self._umi_scaling*np.log(total_umi_n).reshape(-1,1)
+        log_total_umi_n1 = self._umi_scaling*np.log(total_umi_n+1).reshape(-1,1)
         
+        if self._scale_covariates:
+            # Check if the scaler has been fit
+            # if scaler has been fit, means training of GeneRegression has completed
+            if hasattr(self._scaler, 'scale_'):
+                print("scaling covariates")
+                covariates_nl = self._scaler.transform(covariates_nl)
+            else:
+                print("fitting scaler and scaling covariates")
+                covariates_nl = self._scaler.fit_transform(covariates_nl)
+                
         if self._use_covariates:
             X = np.concatenate([log_total_umi_n1, 
                                 cell_type_props_nk,
@@ -47,10 +65,6 @@ class GeneRegression:
         else:
              X = np.concatenate([log_total_umi_n1, 
                             cell_type_props_nk], axis=1)
-            
-        if self._scale_covariates:
-            scaler = StandardScaler()
-            X = scaler.fit_transform(X)
             
         return X
     
@@ -105,7 +119,6 @@ class GeneRegression:
               val_dataset: GeneDataset = None,
               n_steps: int = 100,
               print_frequency: int = 100,
-              use_covariates: bool = True,
               regularization_sweep: bool = False,
               fit_intercept: bool = False,
               alpha_regularization_strengths: np.array = np.array([0.01]),
@@ -121,13 +134,10 @@ class GeneRegression:
             print("Using user-supplied alpha regularization dictionary")
             fit_alpha_dict = False
             
-        if use_covariates:
-            print("Using covariates")
             
         # prepare train kargs dict
         train_kargs = {
             'n_steps': n_steps,
-            'use_covariates': use_covariates,
             'regularization_sweep': regularization_sweep,
             'alpha_regularization_strengths': alpha_regularization_strengths,
             'cell_type_mapping': train_dataset.cell_type_mapping,
@@ -231,31 +241,19 @@ class GeneRegression:
                 ## choose alpha value based on validation set performance
                 self._alpha_dict[gene_name] = alpha_regularization_strengths[np.argmax(val_scores)]
                 
+            # import pdb; pdb.set_trace()
+            
             # performance profiling
-            # start_time = time.time()
+            start_time = time.time()
             ## fit GLM 
             self.clf_g[gene_name] = PoissonRegressor(alpha = self._alpha_dict[gene_name], fit_intercept=fit_intercept, solver='newton-cholesky', max_iter=n_steps).fit(X_train, y_train)
-            # end_time = time.time()
+            end_time = time.time()
             # print(str(end_time-start_time) + ' seconds elapsed per gene')
             
                 
         ## output median alpha if regularization sweep was run
         if regularization_sweep:
             print("median alpha: " + str(np.median(list(self._alpha_dict.values()))))
-            
-#     def alpha_cross_validation(self, n_steps, alpha_regularization_strengths, X, y):
-        
-#         ## add in support for user-defined scoring function
-        
-#         param_dict = {'alpha': alpha_regularization_strengths}
-#         grid_search = GridSearchCV(PoissonRegressor(fit_intercept=False, max_iter=n_steps), param_dict)
-#         grid_search.fit(X,y)
-        
-#         cv_results = grid_search.cv_results_
-#         best_estimator = grid_search.best_estimator_
-#         best_params = grid_search.best_params_
-        
-#         return best_estimator, best_params, cv_results
     
     
     def regularization_validation(self, X_train, y_train, X_val, y_val, alphas, n_steps):
@@ -271,11 +269,11 @@ class GeneRegression:
             val_scores.append(val_score)
 
         return val_scores
-        
             
+
     def predict(self,
             dataset: GeneDataset,
-            return_metrics: bool = False) -> (pd.DataFrame, pd.DataFrame):
+            return_true_counts: bool = False) -> (pd.DataFrame, pd.DataFrame):
         
         # constants
         n, g = dataset.counts.shape[:2]
@@ -287,9 +285,8 @@ class GeneRegression:
         cell_type_ids = dataset.cell_type_ids.long().cpu()
         covariates_nl1 = dataset.covariates.unsqueeze(dim=-1).float().cpu()
 
-        pred_counts_ng = np.zeros((n, g))
-        q_ng = np.zeros((n, g))
-        d_sq_g = np.zeros((g))
+        pred_counts_ng = -1*np.ones((n, g))
+        print("predicting")
 
         X = self._get_regression_X(dataset)
         gene_list = self._get_gene_list()
@@ -297,73 +294,68 @@ class GeneRegression:
             pred_counts_n1 = self.clf_g[gene_list[g_ind]].predict(X)
             pred_counts_ng[:,g_ind] = pred_counts_n1
             
-            if return_metrics:
-                q_ng[:,g_ind] = np.absolute(pred_counts_n1 - counts_ng[:,g_ind])
-                d_sq_g[g_ind] = self.clf_g[gene_list[g_ind]].score(X, counts_ng[:,g_ind])
-            
-            
-        if return_metrics:
-            return pred_counts_ng, d_sq_g, q_ng
+        if return_true_counts:
+            return pred_counts_ng, counts_ng
         else:
-            return pred_counts_ng
-                
+            return pred_counts_ng 
             
-    def compute_eval_metrics(self, dataset: GeneDataset,
-                gr_baseline = None) -> (pd.DataFrame, np.array, np.array):
+    @staticmethod
+    def compute_eval_metrics(pred_counts_ng: np.array,
+                            counts_ng: np.array,
+                            cell_type_ids: np.array,
+                            gene_names: np.array,
+                            pred_counts_ng_baseline: np.array = None,
+                            baseline_sample_size: int = 10000) -> (pd.DataFrame, pd.DataFrame):
         
-        n, g = dataset.counts.shape[:2]
-        k = dataset.k_cell_types
+        n, g = counts_ng.shape[:2]
+        unique_cell_types = np.unique(cell_type_ids)
+        k = len(unique_cell_types)
         
-        # dataset
-        counts_ng = dataset.counts.long().cpu()
-        cell_type_ids = dataset.cell_type_ids.long().cpu()
+        import sklearn
         
-        pred_counts_ng, d_sq_g, q_ng = self.predict(dataset, return_metrics=True)
+        ## compute d_sq, stratified by cell type 
+        d_sq_kg = np.zeros((unique_cell_types.shape[0],g))
+        for k, cell_type in enumerate(unique_cell_types):
+            mask = (cell_type_ids == cell_type)
+            for g_ind in range(g):
+                d_sq_kg[k,g_ind] = GeneRegression.compute_d2(y_true=counts_ng[mask,g_ind], y_pred=pred_counts_ng[mask,g_ind])
+            
+        # print("reached")
+        ## TODO: optionally compute d_sq across all cell types?
+            
+        ## compute q_dist
+        q_ng = np.absolute(pred_counts_ng - counts_ng)
         
-        # average by cell_type to obtain q_prediction
-        unique_cell_types = torch.unique(cell_type_ids)
+        # average qdist by cell_type to obtain q_prediction
         q_kg = np.zeros((unique_cell_types.shape[0], g))
         
         for k, cell_type in enumerate(unique_cell_types):
             mask = (cell_type_ids == cell_type)
             q_kg[k] = np.mean(q_ng[mask], axis=0)
             
+        ## convert to dataframes
+        d_sq_gk = np.transpose(d_sq_kg)
+        df_d_sq_gk = pd.DataFrame(d_sq_gk, columns=unique_cell_types)
+        df_d_sq_gk.index = gene_names
         
-
-        # Compute df_metric_kg
-        # combine: gene_names_kg, cell_types_names_kg, q_kg, q_data_kg, log_score_kg into a dataframe
-        cell_types_names_kg = self._get_cell_type_names_kg(g=len(dataset.gene_names))
-        k_cell_types, len_genes = cell_types_names_kg.shape
-        gene_names_kg = self._get_gene_names_kg(k=k_cell_types)
-        assert gene_names_kg.shape == cell_types_names_kg.shape == q_kg.shape, \
-            "Shape mismatch {0} vs {1} vs {2}".format(gene_names_kg.shape,
-                                                             cell_types_names_kg.shape,
-                                                             q_kg.shape)
-
-        df_metric_kg = pd.DataFrame(cell_types_names_kg.flatten(), columns=["cell_type"])
-        df_metric_kg["gene"] = gene_names_kg.flatten()
-        df_metric_kg["q_dist"] = q_kg.flatten()
-
-        # df_counts_ng = pd.DataFrame(pred_counts_ng.flatten().cpu().numpy(), columns=["counts_pred"])
-        # df_counts_ng["counts_obs"] = dataset.counts.flatten().cpu().numpy()
-        # df_counts_ng["cell_type"] = cell_names_ng.flatten()
-        # df_counts_ng["gene"] = gene_names_ng.flatten()
+        q_gk = np.transpose(q_kg)
+        df_q_gk = pd.DataFrame(q_gk, columns=unique_cell_types)
+        df_q_gk.index = gene_names
         
-        df_d_sq_g = pd.DataFrame(d_sq_g, columns=["D_sq"])
-        df_d_sq_g.index = self._get_gene_list()
-        
-        if gr_baseline is not None:
+        ## if baseline predicted counts given, z-score q_dist metric
+        if pred_counts_ng_baseline is not None:
+
+            # d_sq_g_baseline = compute_d2(pred_counts_ng_baseline, counts_ng)
+            q_ng_baseline = np.absolute(pred_counts_ng_baseline - counts_ng)
             
             q_baseline_mu_kg = np.zeros((unique_cell_types.shape[0], g))
             q_baseline_std_kg = np.zeros((unique_cell_types.shape[0], g))
-        
-            pred_counts_ng_baseline, d_sq_g_baseline, q_ng_baseline = gr_baseline.predict(dataset, return_metrics=True)
             
             for k, cell_type in enumerate(unique_cell_types):
                 mask = (cell_type_ids == cell_type)
                 q_tg_baseline = q_ng_baseline[mask]
-                ## TODO: make size a user flag
-                sample_ind = np.random.choice(q_tg_baseline.shape[0], size=10000)
+
+                sample_ind = np.random.choice(q_tg_baseline.shape[0], size=baseline_sample_size)
                 q_tg_baseline_sample = q_tg_baseline[sample_ind]
 
                 q_baseline_mu_kg[k] = q_tg_baseline_sample.mean(axis=0)
@@ -372,9 +364,62 @@ class GeneRegression:
                 
             q_z_kg = (q_kg - q_baseline_mu_kg)/q_baseline_std_kg
             
-            return df_metric_kg, df_d_sq_g, q_z_kg
+            q_z_gk = np.transpose(q_z_kg)
+            df_q_z_gk = pd.DataFrame(q_z_gk, columns=unique_cell_types)
+            df_q_z_gk.index = gene_names
+            
+            return df_d_sq_gk, df_q_z_gk
         else:
-            return df_metric_kg, df_d_sq_g, q_kg
+            return df_d_sq_gk, df_q_gk
+        
+    from sklearn._loss.loss import HalfPoissonLoss
+        
+    ## implementation from sklearn: https://github.com/scikit-learn/scikit-learn/blob/main/sklearn/linear_model/_glm/glm.py#L464
+    @staticmethod
+    def compute_d2(y_pred, y_true):
+
+        # self._base_loss.link.inverse(raw_prediction)
+
+        y = y_true.astype('float64')
+        base_loss = HalfPoissonLoss()
+        
+        if not base_loss.in_y_true_range(y):
+            raise ValueError(
+                "Some value(s) of y are out of the valid range of the loss"
+                f" {base_loss.__name__}."
+            )
+            
+        if not base_loss.in_y_true_range(y_pred):
+            raise ValueError(
+                "Some value(s) of y pred are out of the valid range of the loss"
+                f" {base_loss.__name__}."
+            )
+
+        raw_prediction = base_loss.link.link(y_pred).astype('float64')
+
+
+        constant = np.average(
+            base_loss.constant_to_optimal_zero(y_true=y, sample_weight=None),
+            weights=None,
+        )
+
+        # Missing factor of 2 in deviance cancels out.
+        deviance = base_loss(
+            y_true=y,
+            raw_prediction=raw_prediction
+        )
+        y_mean = base_loss.link.link(np.average(y, weights=None))
+        deviance_null = base_loss(
+            y_true=y,
+            raw_prediction=np.tile(y_mean, y.shape[0]),
+            sample_weight=None,
+            n_threads=1,
+        )
+        return 1 - (deviance + constant) / (deviance_null + constant)
+
+        
+        
+    
             
         
         

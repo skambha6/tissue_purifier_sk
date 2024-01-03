@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 # This script performs gene expression regression with learned SSL features and compares to NCV 
-# change to work with list of anndata? or directory of anndata 
 
 import argparse
 import torch
@@ -10,6 +9,7 @@ from typing import List
 from anndata import read_h5ad
 from tissue_purifier.data import AnndataFolderDM
 from tissue_purifier.models.ssl_models import *
+import anndata
 
 import numpy
 import numpy as np
@@ -22,224 +22,185 @@ import matplotlib.pyplot as plt
 from anndata import read_h5ad
 import scanpy as sc
 import pandas as pd
-import gseapy as gp
+# import gseapy as gp
+import pickle
 
 import pdb
+
+import time
 
 # tissue_purifier import
 import tissue_purifier as tp
 
-from tissue_purifier.genex import *
-from sklearn.linear_model import RidgeCV
+from tissue_purifier.genex.gene_utils import *
+from tissue_purifier.genex.poisson_glm import *
+
+from multiprocessing import Pool
     
+def merge_anndatas_inner_join(anndata_list):
+    """
+    Merge a list of anndata objects using an inner join operation.
+
+    Args:
+        anndata_list (list): List of anndata objects to be merged.
+
+    Returns:
+        anndata.AnnData: The merged anndata object.
+    """
+    # Check if the anndata_list is not empty
+    if not anndata_list:
+        raise ValueError("Input anndata_list is empty.")
+
+    # Determine the common feature names across all anndata objects
+    common_feature_names = anndata_list[0].var_names
+    for ad in anndata_list[1:]:
+        common_feature_names = common_feature_names.intersection(ad.var_names)
+
+    # Filter observations for each anndata object using the common feature names
+    filtered_anndata_list = []
+    for ad in anndata_list:
+        ad_filtered = ad[:, common_feature_names]
+        filtered_anndata_list.append(ad_filtered)
+
+    # Concatenate the list of filtered anndata objects along axis 0 (rows)
+    merged_anndata = anndata.concat(filtered_anndata_list, axis=0)
     
+    ## assert statement to see if filtered features is large enough
+
+    return merged_anndata
+
 ## stratified by majority cell type label
-def regress_and_plot(adata, config_dict_):
-        
-    ### repeat with cell type proportions instead of majority cell type labels
-
-    category_key = config_dict_['category_key']
+def regress(train_dataset, val_dataset, test_dataset, config_dict_, ctype, fold_prefix):
     
-    cell_types = np.array(adata.obsm[category_key].columns)
+
+    gr_baseline = GeneRegression(use_covariates=False,scale_covariates=config_dict_['scale_covariates'], umi_scaling=config_dict_['umi_scaling'], cell_type_prop_scaling=config_dict_['cell_type_prop_scaling'])
     
-    # loop over all ncvs
+
+    ## do alpha regularization sweep on every gene or random subset of genes and then apply to all 
+    ## to speed up training?
+
+    ## alpha = 0 is unpenalized GLM
+    ## In this case, the design matrix X must have full column rank (no collinearities).
+    ## but our cell_type_props has collinearity
+
+    ## TODO: set max_iter as user parameter
+    ## TODO: confirm convergence with default max_iter?
     
-    covars = config_dict_['feature_keys']
-
+    print("Training baseline model")
+    start_time = time.time()
+    gr_baseline.train(
+        train_dataset=train_dataset,
+        use_covariates=False,
+        regularization_sweep=False,
+        alpha_regularization_strengths = np.array([1.0]))
+    end_time = time.time()
     
-    ncols = 10
-    #ncols = len(cell_types)
-    nmax = len(cell_types)
-    nrows = int(numpy.ceil(float(nmax)/ncols))
+    print(str(end_time - start_time) + " seconds to train baseline model")
     
+    gr = GeneRegression(use_covariates=True, scale_covariates=config_dict_['scale_covariates'], umi_scaling=config_dict_['umi_scaling'], cell_type_prop_scaling=config_dict_['cell_type_prop_scaling'])
     
-    #nrows = 2
-    #nrows = int(numpy.ceil(float(nmax)/ncols))
 
-    fig, axes = plt.subplots(ncols=ncols, nrows=nrows, figsize=(6*ncols, 6*nrows))
+#     ## TODO: allow multiple covariates in GeneDataset / GeneRegression
+    #3 TODO: regularization sweep as user passed parameters
+    print("Training covariate model")
+    start_time = time.time()
+    if config_dict_['regularization_sweep']:
+        print("Running regularization sweep")
+        gr.train(
+            train_dataset=train_dataset,
+            regularization_sweep=True,
+            val_dataset = val_dataset,
+            alpha_regularization_strengths = np.array([0.001, 0.005, 0.01, 0.05, 0.1]))
+    else:
+        gr.train(
+            train_dataset=train_dataset,
+            regularization_sweep=False,
+            val_dataset = val_dataset,
+            alpha_regularization_strengths = np.array([config_dict_['alpha_regularization_strength']]))
+    end_time = time.time()
+    print(str(end_time - start_time) + " seconds to train covariate model")
+    if config_dict_['save_alpha_dict']:
+        
+        alpha_dict_outfile_name = config_dict_["out_prefix"] + "_" + fold_prefix + "_alpha_dict.pickle"
+        alpha_dict_outfile = os.path.join(config_dict_["out_dir"], alpha_dict_outfile_name) 
+        with open(alpha_dict_outfile, 'wb') as file:
+            pickle.dump(gr.get_alpha_dict(), file)
     
+    ## stratify d_sq by cell type
+    ## save d_sq_g and q_z_kg as dataframe with gene names/cell type names
     
-    fig.suptitle("'GEX Evaluation, 100 most highly variable genes")
-
-    for i in range(len(cell_types)):
-        ## baseline model:
-
-        counts_ng = adata.X.todense()
-        
-        
-
-        ## make this user parameters
-        
-        X = np.array(adata.obsm[category_key])
-        
-        majority_cell_type = np.argmax(X, axis = 1)
-        adata.obs['majority_cell_type'] = majority_cell_type
-
-        n_cell_types = len(cell_types)
-        
-        majority_cell_types = np.argmax(X, axis = 0)
-
-        score = []
-        print_score = []
-        alpha = []
-
-        r,c = i//ncols, i%ncols
-        
-        #r,c = 1,1
-        
-        if len(axes.shape) > 1:
-            ax_cur = axes[r,c]
-        else:
-            ax_cur = axes[c]
-
-        adata_kg = adata[adata.obs['majority_cell_type'] == i]
-        keys = ['ct_p']
-        
-        
-        if adata_kg.X.shape[0] > 5: #min # of cells of that cell type to be present at majority level to do analysis
-            #print(idx)
-
-            #print(adata_cg)
-            #print(len(idx))
-
-            
-            X = np.array(adata_kg.obsm[category_key])
-            
-            counts_kg = adata_kg.X.todense()
-            y = counts_kg
-
-            ## train-test split?
-            
-            clf = RidgeCV(alphas=[0.01, 0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0]).fit(X, y)
-            
-            if config_dict_["metric"] == "r^2":
-                new_score = clf.score(X,y)
-            elif config_dict_["metric"] == "q_ratio":
-                
-                y_hat = clf.predict(X)
-
-                qdist = np.abs(y_hat - y)
-                
-                baseline_qdist = qdist ## dealing with 0s here? (bc na when divide)
-                
-                baseline_qdist[baseline_qdist == 0] = 0.001
-                
-                q_ratio = np.array(qdist/baseline_qdist)
-                new_score = np.median(q_ratio)
-                
-                
-                ## create reference z scores etc. 
-#                 ## get z-scores 
-        
-#                 q_ref_mu_kg = np.load('q_ref_mu_kg.npy')
-#                 q_ref_std_kg = np.load('q_ref_std_kg.npy')
-
-
-#                 q_z = (q_kg - q_ref_mu_kg)/q_ref_std_kg
-#                 q_z_mean = q_z.mean()
-        
-            #elif config_dict_["metric"] == "z-score":
-                
-                
-            score.append(new_score)
-            
-            alpha.append(clf.alpha_)
-            print_score.append(round(new_score, 4))
-
-            for n, covar in enumerate(covars):
-#                 ## covar model
-#                 X = adata_kg.obsm[covar]
-
-#                 y = counts_kg
-#                 clf = RidgeCV(alphas=[0.01, 0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0]).fit(X, y)
-#                 score.append(clf.score(X,y))
-#                 alpha.append(clf.alpha_)
-#                 print_score.append(round(clf.score(X,y), 4))
-
-                ## both
-
-                X = np.array(adata_kg.obsm[category_key])
-            
-                X = np.concatenate([X, adata_kg.obsm[covar]], axis=1)
-
-                y = counts_kg
-
-                clf = RidgeCV(alphas=[0.01, 0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0]).fit(X, y) ## add lasso CV
-                
-                if config_dict_["metric"] == "r^2":
-                    new_score = clf.score(X,y)
-                elif config_dict_["metric"] == "q_ratio":
-                
-                    y_hat = clf.predict(X)
-
-                    qdist = np.abs(y_hat - y)
-
-                    q_ratio = np.array(qdist/baseline_qdist)
-                    new_score = np.median(q_ratio)
-                    
-
-                    print(cell_types[i])
-                    print(covar)
-                    
-                    if cell_types[i] == "ES" and covar == "dino":
-                        run_gsea(q_ratio)
-                        
-                
-                score.append(new_score)
-                alpha.append(clf.alpha_)
-                print_score.append(round(new_score, 4))
-                
-                new_key = 'ct_p + ' + covar
-                keys.append(new_key)
-                
-
-            plt.figure()
-            
-            container = ax_cur.bar(keys, score)
-            ax_cur.bar_label(container, print_score)
-
-            ax_cur.set_ylabel(config_dict_["metric"])
-            if config_dict_["metric"] == "r^2":
-                ax_cur.set_ylim([0,1.0])
-                
-            ax_cur.set_title(cell_types[i])
-        
-    fig.savefig(config_dict_["plot_out"])
-    fig.show()
+    pred_counts_ng, counts_ng = gr.predict(test_dataset, return_true_counts=True)
+    pred_counts_ng_baseline, counts_ng_baseline = gr_baseline.predict(test_dataset, return_true_counts=True)
     
-def run_gsea(metric_kg):
-    ### run GSEA
-
-    qratio_g = np.mean(metric_kg, axis=0)
-    qratio_g_pd = pd.DataFrame(qratio_g)
-    qratio_g_pd.index = adata.var_names
+    ## save counts to file
+    pred_counts_ng_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_" + fold_prefix + "_pred_counts_ng.pickle"
+    pred_counts_ng_outfile = os.path.join(config_dict_["out_dir"], pred_counts_ng_outfile_name)
     
-    qratio_g_sorted = qratio_g_pd.sort_values(by=0)
-    
-    import pdb; pdb.set_trace()
+    with open(pred_counts_ng_outfile, 'wb') as file:
+        pickle.dump(pred_counts_ng, file)
         
-    print(qratio_g_sorted.head(n=10))
-
-
-    pre_res = gp.prerank(rnk=qratio_g_pd, # or rnk = rnk,
-                         gene_sets='/mnt/disks/dev/data/m5.go.v2022.1.Mm.symbols.gmt', ## add this as parameter 
-                         threads=4,
-                         min_size=5,
-                         max_size=10000,
-                         permutation_num=1000, # reduce number to speed up testing
-                         outdir=None, # don't write to disk
-                         seed=6,
-                         verbose=True, # see what's going on behind the scenes
-                        )
-
-    pre_res.res2d.tail(10)
+    counts_ng_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_" + fold_prefix + "_counts_ng.pickle"
+    counts_ng_outfile = os.path.join(config_dict_["out_dir"], counts_ng_outfile_name)
     
-    pre_res.res2d.sort_values(by='NES', ascending = False, inplace=True)
-    print(pre_res.res2d.head(15)[['Term', 'NES', 'FDR q-val', 'Lead_genes']]) ## write this to out_file
-    # from gseapy import gseaplot
-    # gseaplot(rank_metric=pre_res.ranking,
-    #          term=terms[i],
-    #          **pre_res.results[terms[i]])
+    with open(counts_ng_outfile, 'wb') as file:
+        pickle.dump(counts_ng, file)
+        
+    pred_counts_ng_baseline_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_" + fold_prefix + "_pred_counts_ng_baseline.pickle"
+    pred_counts_ng_baseline_outfile = os.path.join(config_dict_["out_dir"], pred_counts_ng_baseline_outfile_name)
+    
+    with open(pred_counts_ng_baseline_outfile, 'wb') as file:
+        pickle.dump(pred_counts_ng_baseline, file)
+    
+     ## save gr object to file
+    gr_covar_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_" + fold_prefix + "_gr_covar.pickle"
+    gr_covar_outfile = os.path.join(config_dict_["out_dir"], gr_covar_outfile_name)
+    
+    with open(gr_covar_outfile, 'wb') as file:
+        pickle.dump(gr, file)
+        
+    ## save cell type ids
+    cell_type_ids_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_" + fold_prefix + "_cell_type_ids.pickle"
+    cell_type_ids_outfile = os.path.join(config_dict_["out_dir"], cell_type_ids_outfile_name)
+    
+    with open(cell_type_ids_outfile, 'wb') as file:
+        pickle.dump(test_dataset.cell_type_ids, file)
+        
+    ## save gene names
+    gene_names_outfile_name = config_dict_["out_prefix"]  + "_" + ctype + "_" + fold_prefix + "_gene_names.pickle"
+    gene_names_outfile = os.path.join(config_dict_["out_dir"], gene_names_outfile_name)
+    
+    with open(gene_names_outfile, 'wb') as file:
+        pickle.dump(test_dataset.gene_names, file)
+    
+    return pred_counts_ng, pred_counts_ng_baseline, counts_ng
+
+def run_regression(filtered_anndata, ctype, kfold):
+    
+    print(f"Running train/test fold {kfold}")
+    
+    train_anndata = filtered_anndata[filtered_anndata.obs[f'train_test_fold_{kfold}'] == 0]
+    test_anndata = filtered_anndata[filtered_anndata.obs[f'train_test_fold_{kfold}'] == 1]
+
+
+    train_gene_dataset = make_gene_dataset_from_anndata(
+        anndata=train_anndata,
+        cell_type_key=config_dict_["cell_type_key"],
+        covariate_key=config_dict_["feature_key"],
+        preprocess_strategy='raw',
+        cell_type_prop_key=config_dict_["cell_type_proportions_key"],
+        apply_pca=False)
+
+    test_gene_dataset = make_gene_dataset_from_anndata(
+        anndata=test_anndata,
+        cell_type_key=config_dict_["cell_type_key"],
+        covariate_key=config_dict_["feature_key"],
+        preprocess_strategy='raw',
+        cell_type_prop_key=config_dict_["cell_type_proportions_key"],
+        apply_pca=False)
+
+    test_fold_pred_counts_ng,test_fold_pred_counts_ng_baseline, test_fold_counts_ng = regress(train_gene_dataset, None, test_gene_dataset, config_dict_, ctype, str(kfold))
+    
+    return test_fold_pred_counts_ng, test_fold_pred_counts_ng_baseline, test_fold_counts_ng, test_gene_dataset.cell_type_ids
 
 
 def parse_args(argv: List[str]) -> dict:
@@ -268,25 +229,61 @@ def parse_args(argv: List[str]) -> dict:
     parser = argparse.ArgumentParser(add_help=False, conflict_handler='resolve')
 
     parser.add_argument("--anndata_in", type=str, required=True,
-                        help="path to the annotated anndata.h5ad")
+                        help="path to the directory containing the annotated anndata.h5ad")
     
-    parser.add_argument("--plot_out", type=str, required=True,
-                        help="Output file name to save images/plots to.")
+    parser.add_argument("--out_dir", type=str, required=True,
+                        help="Output directory name to save images/plots to.")
     
-    parser.add_argument("--feature_keys", type=str, nargs='*', required=True,
+    parser.add_argument("--out_prefix", type=str, required=True,
+                        help="Output prefix to name output files.")
+    
+    parser.add_argument("--feature_key", type=str, required=True,
                         help="The computed features to regress on.")
     
-    parser.add_argument("--gsea_out", type=str, required=False,
-                        help="Output file name to save gsea results to.")
+    parser.add_argument("--regularization_sweep", type=bool, required=False,
+                        help="Whether to run regularization sweep", default=False)
+        
+    parser.add_argument("--alpha_regularization_strength", type=float, required=False,
+                        help="Regularization for covariate gene regression", default=0.0)
     
-    parser.add_argument("--top_svg", type=str, required=False,
-                        help="Output file name to save top svgs to.")
+    parser.add_argument("--save_alpha_dict", type=bool, required=False,
+                        help="Whether to save per-gene alpha regularization dictionary", default=False)
     
-    parser.add_argument("--metric", type=str, required=False,
-                        help="Metric to evaluate regression with", default="r^2")
-                             
+    parser.add_argument("--scale_covariates", type=bool, required=False,
+                        help="Whether to standardize covariates before regression", default=False)
+        
+    parser.add_argument("--umi_scaling", type=int, required=False,
+                        help="Scaling factor for log umi coefficient", default=10e3)
+    
+    parser.add_argument("--cell_type_prop_scaling", type=int, required=False,
+                        help="Scaling factor for cell type proportions coefficients", default=10e3)
+    
     parser.add_argument("--category_key", type=str, required=False,
                         help="Key in obsm containing categories", default="rctd_doublet_weights")
+    
+    parser.add_argument("--cell_type_key", type=str, required=False,
+                        help="Key in obs containing majority cell types per spot", default="cell_type")
+    
+    parser.add_argument("--cell_type_proportions_key", type=str, required=False,
+                        help="Key in obsm deconvolution of cell types per spot", default="cell_type_proportions")
+    
+    parser.add_argument("--fg_bc_high_var", type=int, required=False,
+                        help="Filtering criteria", default=None)
+    
+    parser.add_argument("--fc_bc_min_umi", type=int, required=False,
+                        help="Filtering criteria", default=500)
+    
+    parser.add_argument("--fg_bc_min_pct_cells_by_counts", type=int, required=False,
+                        help="Filtering criteria", default=10)
+    
+    parser.add_argument("--cell_types", nargs='*', required=False,
+                        help="Cell types to run regression on; defaults to all cell types")
+    
+    ## TODO: add the rest of the filtering criteria
+    
+    ##TODO: save arguments / config file in out directory 
+    
+    
     
     # Add help at the very end
     parser = argparse.ArgumentParser(parents=[parser], add_help=True)
@@ -299,158 +296,172 @@ def parse_args(argv: List[str]) -> dict:
 
 if __name__ == '__main__':
     config_dict_ = parse_args(sys.argv[1:])
+    
 
-    adata = read_h5ad(config_dict_["anndata_in"])
+    annotated_anndata_folder = config_dict_["anndata_in"]
     
-    ## make these user parameters
+    fname_list = []
+    for f in os.listdir(annotated_anndata_folder):
+        if f.endswith('.h5ad'):
+            fname_list.append(f)
+    print(fname_list)
     
-    # filter cells parameters
-    fc_bc_min_umi = 200                  # filter cells with too few UMI
-    fc_bc_max_umi = 3000                 # filter cells with too many UMI
-    fc_bc_min_n_genes_by_counts = 10     # filter cells with too few GENES
-    fc_bc_max_n_genes_by_counts = 2500   # filter cells with too many GENES
-    fc_bc_max_pct_counts_mt = 5          # filter cells with mitocrondial fraction too high
+    ## read in all anndatas and create one big anndata out of them
+    adata_list = []
 
-    # filter genes parameters
-    fg_bc_min_cells_by_counts = 3000      # filter genes which appear in too few CELLS
-    fg_bc_high_var = 1000                  # filter genes to top n highly variable genes
+    sample_id = 0
+    for fname in fname_list:
+        adata = read_h5ad(filename=os.path.join(annotated_anndata_folder, fname))
+        
+        adata.obs['sample_id'] = np.ones(adata.X.shape[0]) * sample_id
+        sample_id += 1
 
-    # filter rare cell types parameters
-    fctype_bc_min_cells_absolute = 100   # filter cell-types which are too RARE in absolute number
-    fctype_bc_min_cells_frequency = 0.01 # filter cell-types which are too RARE in relative abundance
+        adata_list.append(adata)
+        
+    merged_anndata = merge_anndatas_inner_join(adata_list)
     
-    ## skip cell_type filtering for now
+    ## TODO: only do this if cell type key isn't already present
+    ## add majority cell type labels
+    merged_anndata.obs[config_dict_["cell_type_key"]] = pd.DataFrame(merged_anndata.obsm[config_dict_["cell_type_proportions_key"]].idxmax(axis=1))
     
-    cell_type_key = "cell_type"
+    ## loop regression over all cell types
+    if config_dict_["cell_types"] is not None:
+        print("cell types to regress:")
+        cell_types = config_dict_["cell_types"]
+        print(cell_types)
+    else:
+        print("cell types to regress:")
+        cell_types = np.unique(merged_anndata.obs[config_dict_["cell_type_key"]])
+        print(cell_types)
+        
+    for ctype in cell_types:
+        
+        print("Running regression on cell-type: " + ctype)
+        
+        ## assert that cell_types are in anndata.obs
+        
+        merged_anndata_ctype = merged_anndata[merged_anndata.obs[config_dict_["cell_type_key"]] == ctype]
+        ## flag in cell type prop key
 
-    # mitocondria metrics
-    adata.var['mt'] = adata.var_names.str.startswith('mt-')  # annotate the group of mitochondrial genes as 'mt'
-    sc.pp.calculate_qc_metrics(adata, qc_vars=['mt'], percent_top=None, log1p=False, inplace=True)
+        filtered_anndata = filter_anndata(merged_anndata_ctype, cell_type_key = config_dict_["cell_type_key"], fg_bc_high_var=config_dict_["fg_bc_high_var"], fc_bc_min_umi=config_dict_["fc_bc_min_umi"], fg_bc_min_pct_cells_by_counts=config_dict_["fg_bc_min_pct_cells_by_counts"])
 
-    # counts cells frequency
-    # tmp = adata.obs[cell_type_key].values.describe()
-    # print(tmp)
-    # mask1 = (tmp["counts"] > fctype_bc_min_cells_absolute)
-    # mask2 = (tmp["freqs"] > fctype_bc_min_cells_frequency)
-    # mask = mask1 * mask2
-    # cell_type_keep = set(tmp[mask].index.values)
-    # adata.obs["keep_ctype"] = adata.obs["cell_type"].apply(lambda x: x in cell_type_keep)
+        ## make gene dataset
 
-    
-    adata = adata[adata.obs["total_counts"] > fc_bc_min_umi, :] 
-    adata = adata[adata.obs["total_counts"] < fc_bc_max_umi, :] 
-    adata = adata[adata.obs["n_genes_by_counts"] > fc_bc_min_n_genes_by_counts, :] 
-    adata = adata[adata.obs["n_genes_by_counts"] < fc_bc_max_n_genes_by_counts, :] 
-    adata = adata[adata.obs["pct_counts_mt"] < fc_bc_max_pct_counts_mt, :]
-    #adata = adata[adata.obs["keep_ctype"] == True, :]
-    adata = adata[:, adata.var["n_cells_by_counts"] > fg_bc_min_cells_by_counts]
+        gr_ckpt_dir = 'gr_ckpt_sklearn_poisson' ## user flag
 
 
-    ## identify fg_bc_var most highly variable genes using Seurat method (Satija et al. (2015))
-    # seurat v1 expects logarithmized data 
+        ## Split data into train/test sets based on spatial split assigned in main_2_featurize.py
+        ## If running regularization sweep, train_test_val_split_id must be present in obs
+        ## TODO: add assert statement to verify this
+        if config_dict_["regularization_sweep"]:
+            train_anndata = filtered_anndata[filtered_anndata.obs['train_test_val_split_id'] == 0]
+            val_anndata = filtered_anndata[filtered_anndata.obs['train_test_val_split_id'] == 1]
+            test_anndata = filtered_anndata[filtered_anndata.obs['train_test_val_split_id'] == 2]
 
-    adata_copy = adata.copy()
+            train_gene_dataset = make_gene_dataset_from_anndata(
+                anndata=train_anndata,
+                cell_type_key=config_dict_["cell_type_key"],
+                covariate_key=config_dict_["feature_key"],
+                preprocess_strategy='raw',
+                cell_type_prop_key=config_dict_["cell_type_proportions_key"],
+                apply_pca=False)
+
+            test_gene_dataset = make_gene_dataset_from_anndata(
+                anndata=test_anndata,
+                cell_type_key=config_dict_["cell_type_key"],
+                covariate_key=config_dict_["feature_key"],
+                preprocess_strategy='raw',
+                cell_type_prop_key=config_dict_["cell_type_proportions_key"],
+                apply_pca=False)
+
+            val_gene_dataset = make_gene_dataset_from_anndata(
+                anndata=val_anndata,
+                cell_type_key=config_dict_["cell_type_key"],
+                covariate_key=config_dict_["feature_key"],
+                preprocess_strategy='raw',
+                cell_type_prop_key=config_dict_["cell_type_proportions_key"],
+                apply_pca=False)
+
+            pred_counts_ng, pred_counts_ng_baseline, counts_ng = regress(train_gene_dataset, val_gene_dataset, test_gene_dataset, config_dict_, ctype, "")
+
+            cell_type_ids = test_gene_dataset.cell_type_ids
+        ## if not regularization sweep do spatial train test kfolds
+        else:
+            list_of_folds_pred_counts_ng = []
+            list_of_folds_pred_counts_ng_baseline = []
+            list_of_folds_counts_ng = []
+            list_of_folds_cell_type_ids = []
+
+            ## TODO: make num kfold / range user parameter
+            ## parallelize over kfolds
+
+            with Pool(6) as p:
+                kfold_iterable = p.starmap(run_regression, [(filtered_anndata, ctype, 1), (filtered_anndata, ctype, 2), (filtered_anndata, ctype, 3), (filtered_anndata, ctype, 4)])
+
+            for result in kfold_iterable:
+                list_of_folds_pred_counts_ng.append(result[0])
+                list_of_folds_pred_counts_ng_baseline.append(result[1])
+                list_of_folds_counts_ng.append(result[2])
+                list_of_folds_cell_type_ids.append(result[3])
+
+            pred_counts_ng = np.concatenate(list_of_folds_pred_counts_ng, axis=0)
+            pred_counts_ng_baseline = np.concatenate(list_of_folds_pred_counts_ng_baseline, axis=0)
+
+            assert np.all(pred_counts_ng >= 0), "Some elements in pred_counts_ng are not greater than 0"
+            assert np.all(pred_counts_ng_baseline >= 0), "Some elements in pred_counts_ng are not greater than 0"
+
+            counts_ng = np.concatenate(list_of_folds_counts_ng, axis=0)
+            cell_type_ids = torch.cat(list_of_folds_cell_type_ids, dim=0)
+        
     
-    print(adata_copy)
-    
-    #sc.pp.normalize_total(adata_copy)
-    adata_log = sc.pp.log1p(adata_copy, copy=True)
-    sc.pp.highly_variable_genes(adata_log, subset=True, n_top_genes = fg_bc_high_var, flavor='seurat')
-    adata = adata_log
-    
-    ## evaluate features using linear regression
-    
-    regress_and_plot(adata, config_dict_)
-    
-    # print('metric_kg shape')
-    # print(metric_kg.shape)
-    # if metric_kg is not None:
-    #     run_gsea(metric_kg)
-    
-    ## get k top SVGs
-    
-    ## perform GSEA 
-    
+        ## compute metrics:
+        df_d_sq_g_ssl, df_q_z_g_ssl = GeneRegression.compute_eval_metrics(pred_counts_ng=pred_counts_ng, 
+                                                        counts_ng=counts_ng,
+                                                        cell_type_ids = cell_type_ids,
+                                                        gene_names = np.array(filtered_anndata.var.index),
+                                                        pred_counts_ng_baseline = pred_counts_ng_baseline)
+
+
+        df_d_sq_g_baseline, df_q_z_g_baseline = GeneRegression.compute_eval_metrics(pred_counts_ng=pred_counts_ng_baseline, 
+                                                        counts_ng=counts_ng,
+                                                        cell_type_ids = cell_type_ids,
+                                                        gene_names = np.array(filtered_anndata.var.index),
+                                                        pred_counts_ng_baseline = pred_counts_ng_baseline) 
+
+        #### Write baseline metrics ###
+
+        ## write d_sq_g to file
+        baseline_d_sq_g_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_df_d_sq_g" + "_baseline.pickle"
+        baseline_d_sq_g_outfile = os.path.join(config_dict_["out_dir"], baseline_d_sq_g_outfile_name)
+
+        with open(baseline_d_sq_g_outfile, 'wb') as file:
+            pickle.dump(df_d_sq_g_baseline, file)
+
+        ## write q_z_k to file
+        baseline_q_z_g_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_df_q_z_g" + "_baseline.pickle"
+        baseline_q_z_g_outfile = os.path.join(config_dict_["out_dir"], baseline_q_z_g_outfile_name)
+
+        with open(baseline_q_z_g_outfile, 'wb') as file:
+            pickle.dump(df_q_z_g_baseline, file)
+
+        #### Write metrics ####
+
+        ## write d_sq_g to file
+        d_sq_g_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_df_d_sq_g" + "_ssl.pickle"
+        d_sq_g_outfile = os.path.join(config_dict_["out_dir"], d_sq_g_outfile_name)
+
+        with open(d_sq_g_outfile, 'wb') as file:
+            pickle.dump(df_d_sq_g_ssl, file)
+
+        ## write q_z_kg to file
+        q_z_g_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_df_q_z_g" + "_ssl.pickle"
+        q_z_g_outfile = os.path.join(config_dict_["out_dir"], q_z_g_outfile_name)
+
+        with open(q_z_g_outfile, 'wb') as file:
+            pickle.dump(df_q_z_g_ssl, file)
 
     
     
                         
                         
-                        
-## deprecated
-def regress_and_plot_separate(adata, config_dict_):
-        ### repeat with cell type proportions instead of majority cell type labels
-
-    # loop over all ncvs
-
-    #covars = ['ncv_k10', 'ncv_k25', 'ncv_k100', 'simclr_block-neg', 'simclr_no-block', 'barlow']
-    covars = adata.obsm
-
-    nmax = len(covars)
-    ncols = 2
-    nrows = 2
-    #nrows = int(numpy.ceil(float(nmax)/ncols))
-
-    fig, axes = plt.subplots(ncols=ncols, nrows=nrows, figsize=(6*ncols, 6*nrows))
-    fig.suptitle("'GEX Evaluation, 100 most highly variable genes")
-
-
-    for n, covar in enumerate(covars):
-
-        r,c = n//ncols, n%ncols
-        #r,c = 1,1
-        ax_cur = axes[r,c]
-
-        score = []
-        alpha = []
-        print_score = []
-
-        ## baseline model:
-
-        counts_ng = adata.X.todense()
-
-        ## make this user parameters
         
-        X = np.array(adata.obs[['ES', 'RS', 'Myoid', 'SPC', 'SPG', 'Sertoli', 'Leydig', 'Endothelial', 'Macrophage']])
-
-        y = counts_ng
-
-        clf = RidgeCV(alphas=[0.01, 0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0]).fit(X, y)
-        score.append(clf.score(X,y))
-        alpha.append(clf.alpha_)
-        print_score.append(round(clf.score(X,y), 4))
-
-        ## covar model
-        X = adata.obsm[covar]
-
-        y = counts_ng
-        clf = RidgeCV(alphas=[0.01, 0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0]).fit(X, y)
-        score.append(clf.score(X,y))
-        alpha.append(clf.alpha_)
-        print_score.append(round(clf.score(X,y), 4))
-
-        ## both
-
-        X = np.array(adata.obs[['ES', 'RS', 'Myoid', 'SPC', 'SPG', 'Sertoli', 'Leydig', 'Endothelial', 'Macrophage']])
-
-        X = np.concatenate([X, adata.obsm[covar]], axis=1)
-
-        y = counts_ng
-
-        clf = RidgeCV(alphas=[0.01, 0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0]).fit(X, y)
-        score.append(clf.score(X,y))
-        alpha.append(clf.alpha_)
-        print_score.append(round(clf.score(X,y), 4))
-
-        plt.figure()
-        keys = ['cell_type_prop', covar, 'cell_type_prop + ' + covar]
-
-        container = ax_cur.bar(keys, score)
-        ax_cur.bar_label(container, print_score)
-        
-        ax_cur.set_ylabel('Coefficient of Determination')
-        ax_cur.set_ylim([0,0.2])
-        ax_cur.set_title(covar)
-        
-    fig.savefig(config_dict_["out_file"])
-    fig.show()
