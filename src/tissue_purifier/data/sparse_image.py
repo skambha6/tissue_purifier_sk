@@ -1151,8 +1151,8 @@ class SparseImage:
         ## write to spot dictionary at the end 
         ## todo: allow user supplied suffix
         all_features = torch.cat(all_features,dim=0)
-        self.write_to_spot_dictionary(key=feature_name+"_spot_features", values=all_features)
-        self.write_to_spot_dictionary(key=feature_name + "_spot_features_valid", values=valid_crops)
+        self.write_to_spot_dictionary(key=feature_name, values=all_features)
+        self.write_to_spot_dictionary(key=feature_name + "_valid", values=valid_crops)
         
         # put back the model in the state it was original
         if was_original_in_training_mode:
