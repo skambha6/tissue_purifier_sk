@@ -200,7 +200,7 @@ class GeneRegression:
                         print_frequency: int,
                         kargs: dict):
         
-         """
+        """
         Fit a Poisson regression model for each gene in the dataset. Saves trained models to self.clf_g
         
         Args:

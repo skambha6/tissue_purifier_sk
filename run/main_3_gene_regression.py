@@ -100,8 +100,8 @@ def regress(train_dataset, val_dataset, test_dataset, config_dict_, ctype, fold_
     gr = GeneRegression(use_covariates=True, scale_covariates=config_dict_['scale_covariates'], umi_scaling=config_dict_['umi_scaling'], cell_type_prop_scaling=config_dict_['cell_type_prop_scaling'])
     
 
-#     ## TODO: allow multiple covariates in GeneDataset / GeneRegression
-    #3 TODO: regularization sweep as user passed parameters
+    ## TODO: allow multiple covariates in GeneDataset / GeneRegression
+    ## TODO: regularization sweep as user passed parameters
     print("Training covariate model")
     start_time = time.time()
     if config_dict_['regularization_sweep']:
