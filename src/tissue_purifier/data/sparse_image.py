@@ -966,7 +966,6 @@ class SparseImage:
         patches_xywh = torch.stack((x_torch, y_torch, w_torch, h_torch), dim=-1).long()
 
         
-        ##TODO: check the logic after adding remove_overlap
         ## concatenate patches and features from batches
         
         if strategy == 'random':
@@ -1026,7 +1025,6 @@ class SparseImage:
             for crop in all_crops:
                 ## get cell types in the patch
                 
-                ##TODO: does transform test affect this?\
                 cells = crop.indices().detach().clone()[[0]]
                 ct_counts = []
 
@@ -1270,7 +1268,7 @@ class SparseImage:
 
         self.write_to_spot_dictionary(key = 'train_test_fold_4', values=train_test_fold_4, overwrite=True)
 
-        
+    ## TODO: debug
     def patch_train_test_split(self, feature_xywh: str=None,
                                 res: int=0.4, 
                                 stratify: bool=True,
@@ -1330,6 +1328,7 @@ class SparseImage:
         if return_patches:
             return self._patch_properties_dict['train_test_split_id'], self._patch_properties_dict['train_test_split_id_patch_xywh']
         
+    ## TODO: debug
     def patch_train_test_val_split(self, feature_xywh: str=None,
                                 res: int=0.4, 
                                 stratify: bool=True,
