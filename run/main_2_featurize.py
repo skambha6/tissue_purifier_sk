@@ -167,7 +167,7 @@ if __name__ == '__main__':
             model=model,
             datamodule=dm,
             batch_size=64,
-            fraction_patch_overlap=0.50, 
+            fraction_patch_overlap=config_dict_["frac_overlap"], 
             overwrite=True
         )
         sparse_img.transfer_patch_to_spot(keys_to_transfer=[config_dict_["feature_key"]],
