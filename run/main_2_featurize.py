@@ -73,6 +73,8 @@ def parse_args(argv: List[str]) -> dict:
                         default='bilinear', help="How to interpolate from the image-level to spot-level features")
     parser.add_argument("--frac_overlap", type=float, 
                         default=0.0, help="How much overlap when tiling sparse image into patches to compute patch-level features")
+    parser.add_argument("--spot_feature_batch_size", type=int, 
+                        default=1024, help="Batch size for computing spot features")
     parser.add_argument("--ncv_patch_cluster_res", type=float, 
                         default=0.4, help="Resolution for clustering patches by NCV (determines patch-level train/test split)")
     parser.add_argument("--ssl_model", type=str, default=None,
@@ -136,8 +138,6 @@ if __name__ == '__main__':
     
     for fname in fname_list:
         
-        ## add some assert statement here
-        
         
         # load anndata and convert to sparse_img
         anndata = read_h5ad(filename=os.path.join(anndata_source_folder, fname))
@@ -161,14 +161,13 @@ if __name__ == '__main__':
 
         print("Computing patch features")
         # compute the ssl features
-        ##TODO: incorporate batch size into this function
         sparse_img.compute_patch_features(
             feature_name=config_dict_["feature_key"],
             strategy = 'tiling',
             model=model,
             datamodule=dm,
             batch_size=64,
-            fraction_patch_overlap=0.75, #config_dict_["overlap_for_tissue_test"], ## add this to the config_dict
+            fraction_patch_overlap=0.50, 
             overwrite=True
         )
         sparse_img.transfer_patch_to_spot(keys_to_transfer=[config_dict_["feature_key"]],
@@ -185,22 +184,21 @@ if __name__ == '__main__':
                                     return_patches=True)
         
         print("Computing spot features")
-        ## TODO: set batch size as user hyperparameter
         sparse_img.compute_spot_features(feature_name=config_dict_["feature_key"] + "_spot_features",
             datamodule=dm,
             model=model,
-            batch_size=1024)
+            batch_size=config_dict_["spot_feature_batch_size"])
             
         print("Computing spot train test split")
         ## do spot train test split
-        sparse_img.spot_train_test_split(patch_size=dm.global_size.cpu())
+        sparse_img.spot_train_test_split(patch_size=dm.global_size)
         
         # remove the intermediate results in the patch_dict and image_dict and save the new anndata to file
         sparse_img.clear_dicts(patch_dict=True, image_dict=True)
         new_anndata = sparse_img.to_anndata(export_full_state=True)
         
-        ## TODO
-        out_file_name = fname[:-5] + "_featurized.h5ad" ##user optional suffix here
+        ## TODO: user optional suffix
+        out_file_name = fname[:-5] + "_featurized.h5ad" 
         
         out_file=os.path.join(config_dict_["anndata_out"], out_file_name)
         new_anndata.write(filename=out_file)

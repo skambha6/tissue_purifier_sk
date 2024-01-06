@@ -321,24 +321,10 @@ class SparseSslDM(SslDM):
         Minimum number of beads/cells in a crop
         """
         return self._n_element_min_for_crop
-
-    # TODO: delete this
-    # @property
-    # def cropper_test(self) -> CropperSparseTensor:
-    #     """ Cropper to be used at test time. This specify the cropping strategy to use at test time. """
-    #     return CropperSparseTensor(
-    #         strategy='random',
-    #         crop_size=self._global_size,
-    #         n_element_min=self._n_element_min_for_crop,
-    #         n_crops=self._n_crops_for_tissue_test,
-    #         random_order=True,
-    #     )
     
     @property
     def cropper_test(self) -> CropperSparseTensor:
         """ Cropper to be used at test time. This specify the cropping strategy to use at test time. """
-        # TODO: delete
-        # stride = self._global_size - int(self._global_size * self._fraction_patch_overlap_for_tissue_test)
         return CropperSparseTensor(
             strategy='random',
             crop_size=self._global_size,
@@ -348,7 +334,6 @@ class SparseSslDM(SslDM):
             random_order=True,
         )
 
-    ## TODO: change crop_size to global_size instead of * 1.5?
     @property
     def cropper_train(self) -> CropperSparseTensor:
         """ Cropper to be used at train time. This specify the cropping strategy to use at train time. """
@@ -360,55 +345,17 @@ class SparseSslDM(SslDM):
             random_order=True,
         )
 
-    ## remove augmentations from trsfm_test
     @property
     def trsfm_test(self) -> TransformForList:
         """ Transformation to be applied at test time. This specify the data-augmentation at test time. """
         return TransformForList(
             transform_before_stack=torchvision.transforms.Compose([
-                #DropoutSparseTensor(p=0.5, dropout_rate=self._drop_spot_probs),
                 SparseToDense(),
                 Rasterize(sigmas=self._rasterize_sigmas, normalize=False)
-                #RandomVFlip(p=0.5),
-                #RandomHFlip(p=0.5),
-                #RandomGlobalIntensity(f_min=self._global_intensity[0], f_max=self._global_intensity[1])
             ]),
             transform_after_stack=torchvision.transforms.CenterCrop(size=self.global_size),
         )
-
-    # @property
-    # def trsfm_train_global(self) -> TransformForList:
-    #     """
-    #     Global Transformation to be applied at train time.
-    #     This specify the data augmentation for the global crops.
-    #     """
-    #     return TransformForList(
-    #         transform_before_stack=torchvision.transforms.Compose([
-    #             DropoutSparseTensor(p=1.0, dropout_rate=self._drop_spot_probs),
-    #             SparseToDense(),
-    #             RandomGlobalIntensity(f_min=self._global_intensity[0], f_max=self._global_intensity[1])
-    #         ]),
-    #         transform_after_stack=torchvision.transforms.Compose([
-    #             torchvision.transforms.RandomRotation(
-    #                 degrees=(-180.0, 180.0),
-    #                 interpolation=torchvision.transforms.InterpolationMode.BILINEAR,
-    #                 expand=False,
-    #                 fill=0.0),
-    #             torchvision.transforms.CenterCrop(size=self._global_size),
-    #             RandomVFlip(p=0.5),
-    #             RandomHFlip(p=0.5),
-    #             torchvision.transforms.RandomResizedCrop(
-    #                 size=(self._global_size, self._global_size),
-    #                 scale=self._global_scale,
-    #                 ratio=(0.95, 1.05),
-    #                 interpolation=torchvision.transforms.InterpolationMode.BILINEAR),
-    #             RandomStraightCut(p=0.5, occlusion_fraction=self._occlusion_fraction),
-    #             DropChannel(p=self._drop_channel_prob, relative_frequency=self._drop_channel_relative_freq),
-    #             Rasterize(sigmas=self._rasterize_sigmas, normalize=False),
-    #         ])
-    #     )
     
-    ## TODO: clean up
     @property
     def trsfm_train_global(self) -> TransformForList:
         """
@@ -416,7 +363,7 @@ class SparseSslDM(SslDM):
         This specify the data augmentation for the global crops.
         """
         
-        ##TODO: confirm 2 cuts works as expected
+        ## assumes same occlusion fraction for each straight cut
         if self._n_cuts_for_tissue_train == 1:
             n_RandomStraightCuts = RandomStraightCut(p=0.5, occlusion_fraction=self._occlusion_fraction)
         elif self._n_cuts_for_tissue_train == 2:
@@ -490,7 +437,7 @@ class SparseSslDM(SslDM):
         except AttributeError:
             device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         # print("Inside train_dataloader", device)
-
+        
         assert isinstance(self._dataset_train, CropperDataset)
         if self._dataset_train.n_crops_per_tissue is None:
             batch_size_dataloader = self._batch_size_per_gpu
@@ -780,10 +727,9 @@ class AnndataFolderDM(SparseSslDM):
         """ Extract one or more quantities to regress from the metadata """
         if self._metadata_to_regress is None:
             
-            ##TODO: add loc y to regression
-            
             regress_dict = {
                     "regress_loc_x": float(metadata.loc_x),
+                    "regress_loc_y": float(metadata.loc_y)
                 }
             
             if isinstance(metadata.moran,list) or isinstance(metadata.moran,torch.Tensor):

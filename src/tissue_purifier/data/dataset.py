@@ -43,6 +43,9 @@ class CropperTensor(torch.nn.Module):
                 If true the crops are shuffled before being returned.
             criterium_fn: Callable which returns true if it is a valid crop, return False otherwise
         """
+        
+        ## TODO: check if issue when stride and fraction_patch_overlap are both passed
+            
         super().__init__()
         self.crop_size_ = crop_size
         self.strategy_ = strategy
@@ -72,8 +75,6 @@ class CropperTensor(torch.nn.Module):
             n_crops: int = None,
             random_order: bool = None,
             criterium_fn: Callable = None) -> (List[torch.Tensor], List[int], List[int]):
-
-        ## TODO: check change to fraction_patch_overlap / stride usage is done in a pythonic way
         
         # All parameters default to the one used during initialization if they are not specified except for stride which is computed
         crop_size = self.crop_size_ if crop_size is None else crop_size
@@ -376,11 +377,7 @@ class CropperSparseTensor(CropperTensor):
                        (y_pixel >= y_corner) * \
                        (y_pixel < y_corner + crop_size)  # shape: (n_crops * SAFETY_FACTOR, n_elements)
 
-        ## TODO: write this as new function
-        ## TODO: or do this instead:
-#         ### FIX THIS FOR PCM MAPPING #####
-        if torch.any(values < 1.0): ## if values are probabilistic, change to one hot for purpose of determining valid crop
-                                    ## possibly change this to input flag in config dict 
+        if torch.any(values < 1.0): ## if values are probabilistic, change to one hot for purpose of determining valid crop 
             values_oh = values.clone()
             values_oh[values_oh != 0] = 1
             
@@ -400,7 +397,7 @@ class CropperSparseTensor(CropperTensor):
         
         dense_crop_shape = (ch, crop_size, crop_size)
 
-        ## TODO: change this to be in a better way? (allow n_crops with tiling?)
+        ## TODO: allow n_crops with tiling -> calculate necessary fraction patch overlap
         if strategy == 'tiling':
             crops = []
             ix = x_corner[valid_patch, 0]  # shape: n_valid_patches
@@ -408,13 +405,10 @@ class CropperSparseTensor(CropperTensor):
             mask = element_mask[valid_patch]  # shape: n_valid_patches, element_in_sparse_array
             for n in range(n_valid_patches):
                 mask_n = mask[n]
-                #print(codes.shape)
                 codes_n = codes[mask_n]
-                #print(codes_n.shape)
                 x_pixel_n = x_pixel[mask_n] - ix[n]
                 y_pixel_n = y_pixel[mask_n] - iy[n]
                 values_n = values[mask_n]
-                #print(values_n.shape)
 
                 crops.append(
                     torch.sparse_coo_tensor(
@@ -437,13 +431,10 @@ class CropperSparseTensor(CropperTensor):
             crops = []
             for n in range(n_max):
                 mask_n = mask[n]
-                #print(codes.shape)
                 codes_n = codes[mask_n]
-                #print(codes_n.shape)
                 x_pixel_n = x_pixel[mask_n] - ix[n]
                 y_pixel_n = y_pixel[mask_n] - iy[n]
                 values_n = values[mask_n]
-                #print(values_n.shape)
 
                 crops.append(
                     torch.sparse_coo_tensor(

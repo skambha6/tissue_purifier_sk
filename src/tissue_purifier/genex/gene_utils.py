@@ -160,9 +160,8 @@ def make_gene_dataset_from_anndata(
 
     cell_types = list(anndata.obs[cell_type_key].values)
     cell_type_ids_n, mapping_dict = _make_labels(cell_types)
-    ## TODO: change back to long if poisson glm is finalized
-    # counts_ng = torch.tensor(anndata.X.toarray()).long()
-    counts_ng = torch.tensor(anndata.X.toarray()).float()
+    ## TODO: check glm works with long counts
+    counts_ng = torch.tensor(anndata.X.toarray()).long()
     covariates_nl_raw = torch.tensor(anndata.obsm[covariate_key])
     
 
@@ -260,7 +259,6 @@ def train_test_val_split(
         arrays = data
     elif isinstance(data, GeneDataset):
         # same order as in the definition of GeneDataset NamedTuple
-        ## TODO: check order here
         arrays = [data.covariates, data.cell_type_ids, data.cell_type_props, data.counts]
     else:
         raise ValueError("data must be a list or a GeneDataset")
@@ -370,7 +368,6 @@ def train_test_split(
         arrays = data
     elif isinstance(data, GeneDataset):
         # same order as in the definition of GeneDataset NamedTuple
-        ## TODO: check order here
         arrays = [data.covariates, data.cell_type_ids, data.cell_type_props, data.counts]
     else:
         raise ValueError("data must be a list or a GeneDataset")

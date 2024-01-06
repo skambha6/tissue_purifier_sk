@@ -272,7 +272,7 @@ class DinoModel(SslModelBase):
             max_weight_decay: maximum weight decay (reached at the end of training)
             val_iomin_threshold: during validation, only patches with Intersection Over MinArea < IoMin_threshold
                 are used. Should be in [0.0, 1.0). If 0 only strictly non-overlapping patches are allowed.
-
+            run_classify_regress: If True, runs classification/regression validation
             set_temperature_using_ipr_init: if True the user specifies the initial InverseParticipationRatio (IPR) for
                 the teacher and student network and the temperature of the softmax is computed to match the desired
                 initial IPR.

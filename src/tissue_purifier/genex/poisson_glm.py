@@ -22,23 +22,25 @@ from sklearn._loss.loss import HalfPoissonLoss
 class GeneRegression:
     """
     Given the cell-type labels and some covariates the model predicts the gene expression.
+    Trains a single model per gene across all cell types in the dataset and provides cell-type specific performance metrics.
     The counts are modelled as a Poisson process. See documentation for more details.
     """
     
     def __init__(self, use_covariates, umi_scaling, cell_type_prop_scaling, scale_covariates: bool = False):
         self._train_kargs = None
-        self.clf_g = {}
-        self._use_covariates = use_covariates
-        self._scale_covariates = scale_covariates
-        self._alpha_dict = {}
-        self._umi_scaling = umi_scaling
-        self._cell_type_prop_scaling = cell_type_prop_scaling
+        self.clf_g = {} # dictionary to store per gene regression model
+        self._use_covariates = use_covariates # if true, trains regression with covariates
+        self._scale_covariates = scale_covariates # if true, covariates are scaled (standardized)
+        self._alpha_dict = {} # dictionary to store evaluation metrics across different alpha regularization strengths
+        self._umi_scaling = umi_scaling # scaling factor to multiply nUMI covariate (this reduces effect of regularization on this coefficient)
+        self._cell_type_prop_scaling = cell_type_prop_scaling # scaling factor to multiply cell type proportion covariate (this reduces effect of regularization on this coefficient)
         
         self._scaler = StandardScaler() # MinMaxScaler()
         
         ## assert umi scaling and cell type prop scaling are integers > 0
         
     def _get_regression_X(self, dataset) -> np.array:
+        """ Returns covariates (log UMI, cell type proportions, and optionaly spatial covariates) to run regression on """
         
         counts_ng = dataset.counts.long()
         cell_type_ids = dataset.cell_type_ids.long()
@@ -114,6 +116,7 @@ class GeneRegression:
         """ Set alpha regularization dictionary with per_gene alpha """
         self._alpha_dict = alpha_dict
     
+    # add support for additional evaluation metrics
     def train(self,
               train_dataset: GeneDataset,
               val_dataset: GeneDataset = None,
@@ -123,9 +126,22 @@ class GeneRegression:
               fit_intercept: bool = False,
               alpha_regularization_strengths: np.array = np.array([0.01]),
               alpha_dict: dict = None,
-              metric: str = None, ## return dsquared by default 
               **kargs
               ):
+        
+        """ 
+        Train Poisson Generalized Linear Model 
+        
+        Args:
+            train_dataset: Dataset to train the model on
+            val_dataset: Dataset to perform validation on; required if `regularization_sweep` is True
+            n_steps: max number of iterations to train GLM
+            print_frequency: how frequently to print training updates to screen
+            regularization_sweep: whether to test multiple regularization strengths
+            fit_intercept (bool): Whether to fit the intercept in the regression model.
+            alpha_regularization_strengths: array of alpha regularization strengths to consider if `regularization_sweep` is True. Must be array of length 1 if `regularization_sweep` is False.
+            alpha_dict: Dictionary of alpha regularization strengths to be used for each gene. If provided, overrides `regularization_sweep` and `alpha_regularization_strengths`
+        """
         
         ## Create fit_alpha_dict flag based on whether alpha_dict is passed. If alpha_dict is passed, set fit_alpha_dict flag to False
         ## If fit_alpha_dict flag is false, fit_model() will not over-write alpha_dict
@@ -133,7 +149,6 @@ class GeneRegression:
         if alpha_dict is not None:
             print("Using user-supplied alpha regularization dictionary")
             fit_alpha_dict = False
-            
             
         # prepare train kargs dict
         train_kargs = {
@@ -185,6 +200,19 @@ class GeneRegression:
                         print_frequency: int,
                         kargs: dict):
         
+         """
+        Fit a Poisson regression model for each gene in the dataset. Saves trained models to self.clf_g
+        
+        Args:
+            train_dataset: The training dataset.
+            val_dataset: The validation dataset, used when a regularization sweep is performed.
+            counts_ng_train: The array of gene expression counts for the training set.
+            counts_ng_val: The array of gene expression counts for the validation set, used in regularization sweep.
+            fit_intercept: If true, intercept is fit during regression.
+            print_frequency: Frequency of printing progress updates.
+
+        """
+        
         ## prepare coefficients for regression
         total_umi_n = kargs["total_umi_n"]
         cell_type_props_nk = kargs['cell_type_props']
@@ -221,9 +249,6 @@ class GeneRegression:
         print('start fitting genes')
         for g_ind in range(g_genes):
             
-            
-            import time
-            
             ## output progress message
             if (g_ind+1) % print_frequency == 0:
                 print('finished ' + str(g_ind+1) + ' genes')
@@ -241,7 +266,6 @@ class GeneRegression:
                 ## choose alpha value based on validation set performance
                 self._alpha_dict[gene_name] = alpha_regularization_strengths[np.argmax(val_scores)]
                 
-            # import pdb; pdb.set_trace()
             
             # performance profiling
             start_time = time.time()
@@ -256,16 +280,38 @@ class GeneRegression:
             print("median alpha: " + str(np.median(list(self._alpha_dict.values()))))
     
     
-    def regularization_validation(self, X_train, y_train, X_val, y_val, alphas, n_steps):
+    def regularization_validation(self, X_train: np.array, 
+                                        y_train: np.array, 
+                                        X_val: np.array, 
+                                        y_val: np.array, 
+                                        alphas: np.array, 
+                                        n_steps: int):
+        """
+        Perform regularization validation to identify the optimal alpha value for Poisson regression.
+        
+        Args:
+            X_train: The feature matrix for the training dataset.
+            y_train: The response vector (gene expression counts) for the training dataset.
+            X_val: The feature matrix for the validation dataset.
+            y_val: The response vector (gene expression counts) for the validation dataset.
+            alphas: An array of alpha values to be tested.
+            n_steps: The maximum number of iterations for training the GLM.
+            
+        Returns:
+            List of performance (d-sq, percentage of deviance explained) scores on validation set for each alpha in alphas
+        """
+
         
         ## Train separate GLM for each alpha and output corresponding d_sq scores on validation set
         val_scores = []
 
         for alpha in alphas:
+            # fit model on train dataset
             estimator = PoissonRegressor(alpha=alpha, fit_intercept=False, solver='newton-cholesky', max_iter=n_steps)
             estimator.fit(X_train,y_train)
-            val_score = estimator.score(X_val, y_val)
             
+            # score on validation dataset
+            val_score = estimator.score(X_val, y_val)
             val_scores.append(val_score)
 
         return val_scores
@@ -274,6 +320,13 @@ class GeneRegression:
     def predict(self,
             dataset: GeneDataset,
             return_true_counts: bool = False) -> (pd.DataFrame, pd.DataFrame):
+        """
+        Predict gene expression counts for a given dataset using the trained Poisson regression models.
+        Args:
+            dataset: GeneDataset to predict expression counts for
+            return_true_counts: If True, the function will return both predicted counts and true counts. Defaults to False.
+
+        """
         
         # constants
         n, g = dataset.counts.shape[:2]
@@ -285,9 +338,11 @@ class GeneRegression:
         cell_type_ids = dataset.cell_type_ids.long().cpu()
         covariates_nl1 = dataset.covariates.unsqueeze(dim=-1).float().cpu()
 
+        # initialize array with -1
         pred_counts_ng = -1*np.ones((n, g))
         print("predicting")
 
+        # predict counts for each gene using corresponding Poisson GLM
         X = self._get_regression_X(dataset)
         gene_list = self._get_gene_list()
         for g_ind in range(g):
@@ -306,6 +361,24 @@ class GeneRegression:
                             gene_names: np.array,
                             pred_counts_ng_baseline: np.array = None,
                             baseline_sample_size: int = 10000) -> (pd.DataFrame, pd.DataFrame):
+        """
+        This method calculates the d-squared statistic and the absolute prediction error (q_dist) for each gene, 
+        stratified by cell type. It optionally computes a z-scored q_dist metric if baseline predicted counts are provided.
+        
+        Args:
+            pred_counts_ng: Predicted gene expression counts.
+            counts_ng: True gene expression counts.
+            cell_type_ids: (Majority) cell type identities.
+            gene_names: Gene names.
+            pred_counts_ng_baseline (optional): Baseline predicted gene expression counts for Q-dist z-score computation.
+            baseline_sample_size (optional): Sample size to compute baseline q-dist distribution, defaults to 10000.
+
+        Returns:
+            pd.DataFrame, pd.DataFrame: DataFrames containing the d-squared statistics and q_dist (or z-scored q_dist) 
+                                        metrics for each gene, indexed by gene names and with columns representing 
+                                        different cell types.
+
+        """
         
         n, g = counts_ng.shape[:2]
         unique_cell_types = np.unique(cell_type_ids)
@@ -319,9 +392,6 @@ class GeneRegression:
             mask = (cell_type_ids == cell_type)
             for g_ind in range(g):
                 d_sq_kg[k,g_ind] = GeneRegression.compute_d2(y_true=counts_ng[mask,g_ind], y_pred=pred_counts_ng[mask,g_ind])
-            
-        # print("reached")
-        ## TODO: optionally compute d_sq across all cell types?
             
         ## compute q_dist
         q_ng = np.absolute(pred_counts_ng - counts_ng)
@@ -372,15 +442,27 @@ class GeneRegression:
         else:
             return df_d_sq_gk, df_q_gk
         
-    from sklearn._loss.loss import HalfPoissonLoss
-        
     ## implementation from sklearn: https://github.com/scikit-learn/scikit-learn/blob/main/sklearn/linear_model/_glm/glm.py#L464
     @staticmethod
     def compute_d2(y_pred, y_true):
+        """
+        Calculate the d-squared statistic to assess the fit of Poisson regression model.
 
-        # self._base_loss.link.inverse(raw_prediction)
+        The d² statistic measures the proportionate reduction in deviance when comparing the fitted model 
+        to a null model (which predicts only the mean of the response variable).
 
+        Args:
+            y_pred: Predicted gene expression counts generated by the model.
+            y_true: True observed gene expression counts.
+
+        Returns:
+            float: The d-squared statistic, representing the goodness of fit of the model.
+        """
+
+        # convert y true to float64
         y = y_true.astype('float64')
+        
+        # initialize loss
         base_loss = HalfPoissonLoss()
         
         if not base_loss.in_y_true_range(y):
@@ -395,6 +477,7 @@ class GeneRegression:
                 f" {base_loss.__name__}."
             )
 
+        # base loss takes raw prediction as input
         raw_prediction = base_loss.link.link(y_pred).astype('float64')
 
 
@@ -403,6 +486,7 @@ class GeneRegression:
             weights=None,
         )
 
+        # compute d_sq
         # Missing factor of 2 in deviance cancels out.
         deviance = base_loss(
             y_true=y,

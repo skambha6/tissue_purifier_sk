@@ -203,7 +203,7 @@ def initialization(
     )
     ckpt_train_end.CHECKPOINT_NAME_LAST = 'my_checkpoint_last'  # the extension .ckpt will be added automatically
     
-    ## TODO: check if accelerator='dp' is fine with single gpu
+    ## TODO: debug validation with multi-gpu training
     pl_trainer = Trainer(
         weights_save_path="saved_ckpt",
         profiler=profiler,

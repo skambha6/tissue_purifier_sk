@@ -200,7 +200,7 @@ def train_test_split_dict(world_dict: dict,
                           random_state: int = 0):
     """
     Utility function to split dictionary into train and test dictionaries (that are optionally split spatially)
-    It takes a dictionary with patch-levle features and annotations
+    It takes a dictionary with patch-level features and annotations
     
     Args:
         world_dict: a dictionary with path-level features and annotations.
