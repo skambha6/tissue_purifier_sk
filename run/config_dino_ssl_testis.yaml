@@ -11,7 +11,7 @@ gradient_clip_val: 0.5
 initialization_type: scratch
 remote_logging: true
 # gpus: 2 update with the number of GPUs available on your system
-gpus: 1
+gpus: 2
 precision: 16
 num_workers: 4
 # debugging options
@@ -50,9 +50,9 @@ min_learning_rate: 1.0E-5
 max_learning_rate: 5.0E-4
 min_weight_decay: 0.0
 max_weight_decay: 0.0
-warm_up_epochs: 100
-warm_down_epochs: 100
-max_epochs: 2000
+warm_up_epochs: 0 #100
+warm_down_epochs: 0 #100
+max_epochs: 5 #2000
 
 # dataset
 # data_folder: update with the path to the folder with the anndata.h5ad files
