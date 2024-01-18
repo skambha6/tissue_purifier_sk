@@ -143,8 +143,8 @@ class GeneRegression:
             alpha_dict: Dictionary of alpha regularization strengths to be used for each gene. If provided, overrides `regularization_sweep` and `alpha_regularization_strengths`
         """
         
-        ## Create fit_alpha_dict flag based on whether alpha_dict is passed. If alpha_dict is passed, set fit_alpha_dict flag to False
-        ## If fit_alpha_dict flag is false, fit_model() will not over-write alpha_dict
+        # create fit_alpha_dict flag based on whether alpha_dict is passed. If alpha_dict is passed, set fit_alpha_dict flag to False
+        # if fit_alpha_dict flag is false, fit_model() will not over-write alpha_dict
         fit_alpha_dict = True
         if alpha_dict is not None:
             print("Using user-supplied alpha regularization dictionary")
@@ -213,7 +213,7 @@ class GeneRegression:
 
         """
         
-        ## prepare coefficients for regression
+        # prepare coefficients for regression
         total_umi_n = kargs["total_umi_n"]
         cell_type_props_nk = kargs['cell_type_props']
         covariates_nl = kargs['covariates_nl']
@@ -226,7 +226,7 @@ class GeneRegression:
         fit_alpha_dict = kargs["fit_alpha_dict"]
         alpha_dict = kargs["alpha_dict"]
         
-        ## get coefficients for regression
+        # get coefficients for regression
         
         X_train = self._get_regression_X(train_dataset)
         
@@ -244,7 +244,7 @@ class GeneRegression:
                 ## TODO: assert all genes are present in user given alpha_dict
                 self._alpha_dict = alpha_dict
         
-        ## Train a separate GLM for each gene
+        # Train a separate GLM for each gene
     
         print('start fitting genes')
         for g_ind in range(g_genes):
@@ -269,13 +269,13 @@ class GeneRegression:
             
             # performance profiling
             start_time = time.time()
-            ## fit GLM 
+            # fit GLM 
             self.clf_g[gene_name] = PoissonRegressor(alpha = self._alpha_dict[gene_name], fit_intercept=fit_intercept, solver='newton-cholesky', max_iter=n_steps).fit(X_train, y_train)
             end_time = time.time()
             # print(str(end_time-start_time) + ' seconds elapsed per gene')
             
                 
-        ## output median alpha if regularization sweep was run
+        # output median alpha if regularization sweep was run
         if regularization_sweep:
             print("median alpha: " + str(np.median(list(self._alpha_dict.values()))))
     
@@ -360,10 +360,11 @@ class GeneRegression:
                             cell_type_ids: np.array,
                             gene_names: np.array,
                             pred_counts_ng_baseline: np.array = None,
-                            baseline_sample_size: int = 10000) -> (pd.DataFrame, pd.DataFrame):
+                            baseline_sample_size: int = 10000,
+                            compute_q_z_score: bool=False -> (pd.DataFrame, pd.DataFrame):
         """
         This method calculates the d-squared statistic and the absolute prediction error (q_dist) for each gene, 
-        stratified by cell type. It optionally computes a z-scored q_dist metric if baseline predicted counts are provided.
+        stratified by cell type. It optionally computes a relative q_dist (or z-scored q_dist metric if compute_q_z_score is set to true) if baseline predicted counts are provided.
         
         Args:
             pred_counts_ng: Predicted gene expression counts.
@@ -412,15 +413,15 @@ class GeneRegression:
         df_q_gk = pd.DataFrame(q_gk, columns=unique_cell_types)
         df_q_gk.index = gene_names
         
-        ## if baseline predicted counts given, z-score q_dist metric
+        ## if baseline predicted counts given, produce relative q_dist or z-scored q_dist metric
         if pred_counts_ng_baseline is not None:
-
-            # d_sq_g_baseline = compute_d2(pred_counts_ng_baseline, counts_ng)
-            q_ng_baseline = np.absolute(pred_counts_ng_baseline - counts_ng)
             
+            
+            q_ng_baseline = np.absolute(pred_counts_ng_baseline - counts_ng)
+
             q_baseline_mu_kg = np.zeros((unique_cell_types.shape[0], g))
             q_baseline_std_kg = np.zeros((unique_cell_types.shape[0], g))
-            
+
             for k, cell_type in enumerate(unique_cell_types):
                 mask = (cell_type_ids == cell_type)
                 q_tg_baseline = q_ng_baseline[mask]
@@ -430,15 +431,26 @@ class GeneRegression:
 
                 q_baseline_mu_kg[k] = q_tg_baseline_sample.mean(axis=0)
                 q_baseline_std_kg[k] = q_tg_baseline_sample.std(axis=0)
-                
-                
-            q_z_kg = (q_kg - q_baseline_mu_kg)/q_baseline_std_kg
-            
-            q_z_gk = np.transpose(q_z_kg)
-            df_q_z_gk = pd.DataFrame(q_z_gk, columns=unique_cell_types)
-            df_q_z_gk.index = gene_names
-            
-            return df_d_sq_gk, df_q_z_gk
+
+            # calculate z scored q-dist
+            if compute_q_z_score:
+                q_z_kg = (q_kg - q_baseline_mu_kg)/q_baseline_std_kg
+
+                q_z_gk = np.transpose(q_z_kg)
+                df_q_z_gk = pd.DataFrame(q_z_gk, columns=unique_cell_types)
+                df_q_z_gk.index = gene_names
+
+                return df_d_sq_gk, df_q_z_gk
+            # calculate q-dist normalized by baseline
+            else:
+                             
+                rel_q_kg = (q_kg - q_baseline_mu_kg)/q_baseline_std_kg
+                             
+                rel_q_gk = np.transpose(rel_q_gk)
+                df_rel_q_gk = pd.DataFrame(rel_q_gk, columns=unique_cell_types)
+                df_rel_q_gk.index = gene_names
+                             
+                return df_d_sq_gk, df_rel_q_gk
         else:
             return df_d_sq_gk, df_q_gk
         

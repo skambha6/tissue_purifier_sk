@@ -276,8 +276,11 @@ def parse_args(argv: List[str]) -> dict:
     parser.add_argument("--fg_bc_min_pct_cells_by_counts", type=int, required=False,
                         help="Filtering criteria", default=10)
     
-    parser.add_argument("--cell_types", nargs='*', required=False,
+    parser.add_argument("--cell_types", type=str, nargs='*', required=False,
                         help="Cell types to run regression on; defaults to all cell types")
+    
+    parser.add_argument("--filter", type=int, required=False,
+                        help="If provided, set outlier values beyond filter threshold to 0")
     
     ## TODO: add the rest of the filtering criteria
     
@@ -345,15 +348,21 @@ if __name__ == '__main__':
 
         filtered_anndata = filter_anndata(merged_anndata_ctype, cell_type_key = config_dict_["cell_type_key"], fg_bc_high_var=config_dict_["fg_bc_high_var"], fc_bc_min_umi=config_dict_["fc_bc_min_umi"], fg_bc_min_pct_cells_by_counts=config_dict_["fg_bc_min_pct_cells_by_counts"])
 
-        ## make gene dataset
-
-        gr_ckpt_dir = 'gr_ckpt_sklearn_poisson' ## user flag
+        # filter spatial covariates 
+        if config_dict_["filter"] is not None:
+            threshold = config_dict_["filter"]
+            filtered_anndata.obsm[config_dict_["feature_key"]][filtered_anndata.obsm[config_dict_["feature_key"] > threshold] = 0
+                                                               
 
 
         ## Split data into train/test sets based on spatial split assigned in main_2_featurize.py
         ## If running regularization sweep, train_test_val_split_id must be present in obs
-        ## TODO: add assert statement to verify this
+
         if config_dict_["regularization_sweep"]:
+            ## TODO: test this assert statement                                                   
+            assert "train_test_val_split_id" in filtered_anndata.obs.keys() /
+                "Train_test_val_split_id must be present in obs to run regularization sweep"
+                                                               
             train_anndata = filtered_anndata[filtered_anndata.obs['train_test_val_split_id'] == 0]
             val_anndata = filtered_anndata[filtered_anndata.obs['train_test_val_split_id'] == 1]
             test_anndata = filtered_anndata[filtered_anndata.obs['train_test_val_split_id'] == 2]
@@ -415,14 +424,14 @@ if __name__ == '__main__':
         
     
         ## compute metrics:
-        df_d_sq_g_ssl, df_q_z_g_ssl = GeneRegression.compute_eval_metrics(pred_counts_ng=pred_counts_ng, 
+        df_d_sq_gk_ssl, df_rel_q_gk_ssl = GeneRegression.compute_eval_metrics(pred_counts_ng=pred_counts_ng, 
                                                         counts_ng=counts_ng,
                                                         cell_type_ids = cell_type_ids,
                                                         gene_names = np.array(filtered_anndata.var.index),
                                                         pred_counts_ng_baseline = pred_counts_ng_baseline)
 
 
-        df_d_sq_g_baseline, df_q_z_g_baseline = GeneRegression.compute_eval_metrics(pred_counts_ng=pred_counts_ng_baseline, 
+        df_d_sq_gk_baseline, df_rel_q_gk_baseline = GeneRegression.compute_eval_metrics(pred_counts_ng=pred_counts_ng_baseline, 
                                                         counts_ng=counts_ng,
                                                         cell_type_ids = cell_type_ids,
                                                         gene_names = np.array(filtered_anndata.var.index),
@@ -431,34 +440,34 @@ if __name__ == '__main__':
         #### Write baseline metrics ###
 
         ## write d_sq_g to file
-        baseline_d_sq_g_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_df_d_sq_g" + "_baseline.pickle"
-        baseline_d_sq_g_outfile = os.path.join(config_dict_["out_dir"], baseline_d_sq_g_outfile_name)
+        baseline_d_sq_gk_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_df_d_sq_gk" + "_baseline.pickle"
+        baseline_d_sq_gk_outfile = os.path.join(config_dict_["out_dir"], baseline_d_sq_gk_outfile_name)
 
-        with open(baseline_d_sq_g_outfile, 'wb') as file:
-            pickle.dump(df_d_sq_g_baseline, file)
+        with open(baseline_d_sq_gk_outfile, 'wb') as file:
+            pickle.dump(df_d_sq_gk_baseline, file)
 
         ## write q_z_k to file
-        baseline_q_z_g_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_df_q_z_g" + "_baseline.pickle"
-        baseline_q_z_g_outfile = os.path.join(config_dict_["out_dir"], baseline_q_z_g_outfile_name)
+        baseline_rel_q_gk_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_df_rel_q_gk" + "_baseline.pickle"
+        baseline_rel_q_gk_outfile = os.path.join(config_dict_["out_dir"], baseline_rel_q_gk_outfile_name)
 
-        with open(baseline_q_z_g_outfile, 'wb') as file:
-            pickle.dump(df_q_z_g_baseline, file)
+        with open(baseline_rel_q_gk_outfile, 'wb') as file:
+            pickle.dump(df_rel_q_gk_baseline, file)
 
         #### Write metrics ####
 
         ## write d_sq_g to file
-        d_sq_g_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_df_d_sq_g" + "_ssl.pickle"
-        d_sq_g_outfile = os.path.join(config_dict_["out_dir"], d_sq_g_outfile_name)
+        d_sq_gk_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_df_d_sq_gk" + "_ssl.pickle"
+        d_sq_gk_outfile = os.path.join(config_dict_["out_dir"], d_sq_gk_outfile_name)
 
-        with open(d_sq_g_outfile, 'wb') as file:
-            pickle.dump(df_d_sq_g_ssl, file)
+        with open(d_sq_gk_outfile, 'wb') as file:
+            pickle.dump(df_d_sq_gk_ssl, file)
 
         ## write q_z_kg to file
-        q_z_g_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_df_q_z_g" + "_ssl.pickle"
-        q_z_g_outfile = os.path.join(config_dict_["out_dir"], q_z_g_outfile_name)
+        rel_q_gk_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_df_rel_q_gk" + "_ssl.pickle"
+        rel_q_gk_outfile = os.path.join(config_dict_["out_dir"], rel_q_gk_outfile_name)
 
-        with open(q_z_g_outfile, 'wb') as file:
-            pickle.dump(df_q_z_g_ssl, file)
+        with open(rel_q_gk_outfile, 'wb') as file:
+            pickle.dump(df_rel_q_gk_ssl, file)
 
     
     
