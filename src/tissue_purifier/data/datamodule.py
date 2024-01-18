@@ -659,9 +659,7 @@ class AnndataFolderDM(SparseSslDM):
                 anndata.X = None  # set the count matrix to None
                 sp_img = self.anndata_to_sparseimage(anndata=anndata).cpu()
                 all_sparse_images.append(sp_img)
-
-                #metadata = MetadataCropperDataset(f_name=filename, loc_x=0.0, loc_y=0.0, moran=-99, case_control_status=0)
-                metadata = MetadataCropperDataset(f_name=filename, loc_x=0.0, loc_y=0.0, moran=-99, sample_status = 0, composition=None)
+                metadata = MetadataCropperDataset(f_name=filename, loc_x=0.0, loc_y=0.0, moran=-99, sample_status = 0, composition=None) ## dummy metadata
                 all_metadatas.append(metadata)
 
                 all_labels.append(filename)
@@ -677,6 +675,7 @@ class AnndataFolderDM(SparseSslDM):
         # create test_dataset_random and write to file
         all_names = [metadata.f_name for metadata in all_metadatas]
 
+        ## TODO: allow cropper strategy to be random or tiling
         ## change this
         if torch.cuda.is_available():
             all_sparse_images = [sp_img.cuda() for sp_img in all_sparse_images]
@@ -688,26 +687,13 @@ class AnndataFolderDM(SparseSslDM):
             labels = [label] * len(sps_tmp)
 
             ### add majority cell type label 
-            
-            ###  FIX PATCH ANALYZER CODE for PROBABILISTIC CELL_TYPE_MAPPING
             morans = [self.compute_moran(sparse_tensor).max().item() for sparse_tensor in sps_tmp]
-            statuses = [sp_img._sample_status for sparse_tensor in sps_tmp] ## replicate instead; same status for all patches in this sp img
+            statuses = [sp_img._sample_status for sparse_tensor in sps_tmp] ## same status for all patches in this sp img
             list_composition = Composition(return_fraction=True)(sps_tmp)
             metadatas = [MetadataCropperDataset(f_name=fname, loc_x=loc_x, loc_y=loc_y, moran=moran, sample_status=status, composition=composition) for
                      loc_x, loc_y, moran, status, composition in zip(loc_x_tmp, loc_y_tmp, morans, statuses,list_composition)] 
             
-            ## temporary, change to access sp_img 
-            
-            ## temp
-            # print("sp img")
-            # print(sp_img._spot_properties_dict)
-            # print(sp_img._patch_properties_dict)
-
-            # metadatas = [MetadataCropperDataset(f_name=fname, loc_x=loc_x, loc_y=loc_y, moran=-99, case_control_status=0) for
-            #              loc_x, loc_y in zip(loc_x_tmp, loc_y_tmp)] ### dummy metadatas
-
-            # metadatas = [MetadataCropperDataset(f_name=fname, loc_x=loc_x, loc_y=loc_y, moran=-99) for
-            #  loc_x, loc_y in zip(loc_x_tmp, loc_y_tmp)] ### dummy metadatas
+            # metadatas = MetadataCropperDataset(f_name=filename, loc_x=0.0, loc_y=0.0, moran=-99, sample_status = 0, composition=None)
             
             test_imgs += [sp_img.cpu() for sp_img in sps_tmp]
             test_labels += labels

@@ -252,7 +252,7 @@ def show_raw_one_channel(
     return fig
 
 
-def show_raw_all_channels(
+def show_raw_all_channels( 
         data: Union[torch.Tensor, List[torch.Tensor]],
         n_col: int = 4,
         cmap: str = None,
