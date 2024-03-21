@@ -443,11 +443,7 @@ def linear_classification_regression(world_dict: dict, val_iomin_threshold: floa
     df_tot["combined_key"] = df_tot["x_key"] + "_" + df_tot["y_key"]
     df_mean = df_tot.groupby("combined_key").mean()
     df_std = df_tot.groupby("combined_key").std()
-    return df_mean, df_std
-
-
-# ## do this for overlapping vs non-overlapping patches
-# def plot_clusters_spatially(world_dict: dict, val_iomin_threshold: float):   
+    return df_mean, df_std  
 
 
 class SslModelBase(LightningModule):

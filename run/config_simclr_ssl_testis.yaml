@@ -47,6 +47,7 @@ max_epochs: 2000
 # data_folder: update with the path to the folder with the anndata.h5ad files
 n_crops_for_tissue_test: 1000
 n_crops_for_tissue_train: 1000
+overlap_for_tissue_test: 0.0
 n_element_min_for_crop: 200
 n_cuts_for_tissue_train: 1
 n_neighbours_moran: 6

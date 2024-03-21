@@ -714,21 +714,21 @@ class AnndataFolderDM(SparseSslDM):
         if self._metadata_to_regress is None:
             
             regress_dict = {
-                    "regress_loc_x": float(metadata.loc_x),
-                    "regress_loc_y": float(metadata.loc_y)
+                    "loc_x": float(metadata.loc_x),
+                    "loc_y": float(metadata.loc_y)
                 }
             
             if isinstance(metadata.moran,list) or isinstance(metadata.moran,torch.Tensor):
                 for ch in range(len(metadata.moran)):
-                    regress_dict["regress_moran_ch_" + str(ch)] = metadata.moran[ch].item()
+                    regress_dict["moran_ch_" + str(ch)] = metadata.moran[ch].item()
 
-                regress_dict["regress_moran"] = float(metadata.moran.max().item())
+                regress_dict["moran"] = float(metadata.moran.max().item())
                 
             else:
-                regress_dict["regress_moran"] = float(metadata.moran)
+                regress_dict["moran"] = float(metadata.moran)
 
             for ch in range(len(metadata.composition)):
-                regress_dict["regress_ch_" + str(ch)] = metadata.composition[ch].item()
+                regress_dict["ch_" + str(ch)] = metadata.composition[ch].item()
                 
             return regress_dict
         else:

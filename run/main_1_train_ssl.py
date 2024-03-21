@@ -153,7 +153,9 @@ def initialization(
         sync_batchnorm = False
         precision = new_dict["precision"]
     else:
-        # more that 1 gpu
+        # TODO:
+        # Validation hangs with multi-gpu training. Investigate solution
+        # more thaN 1 gpu
         accelerator = None
         num_processes = 1
         sync_batchnorm = True
@@ -163,8 +165,9 @@ def initialization(
             strategy = DDPPlugin(find_unused_parameters=True)
         else:
             # everything else works with automatic differentiation. Set this to false for speed
-            strategy = DDPPlugin(find_unused_parameters=False)
-            #strategy = "ddp"
+            strategy = DDPStrategy(find_unused_parameters=False)
+            # strategy = DDPPlugin(find_unused_parameters=False)
+            # strategy = "ddp"
 
     # monitor the learning rate. This will work both when manual or scheduler is used to change the learning rate.
     lr_monitor = LearningRateMonitor(logging_interval='epoch', log_momentum=True)

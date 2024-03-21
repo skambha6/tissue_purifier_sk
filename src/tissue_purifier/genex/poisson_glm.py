@@ -7,7 +7,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from tissue_purifier.genex.gene_utils import GeneDataset # relat0ive vs absolute imports 
 
-
+import sklearn
 from sklearn.linear_model import PoissonRegressor
 from sklearn.model_selection import GridSearchCV
 from sklearn.preprocessing import StandardScaler
@@ -241,7 +241,9 @@ class GeneRegression:
                     self._alpha_dict[gene_name] = alpha_regularization_strengths[0]
             else:
                 assert alpha_dict is not None
-                ## TODO: assert all genes are present in user given alpha_dict
+                ## TODO: check this assert statement
+                for gene_name in gene_names:
+                    assert gene_name in list(self._alpha_dict.keys())
                 self._alpha_dict = alpha_dict
         
         # Train a separate GLM for each gene
@@ -361,7 +363,7 @@ class GeneRegression:
                             gene_names: np.array,
                             pred_counts_ng_baseline: np.array = None,
                             baseline_sample_size: int = 10000,
-                            compute_q_z_score: bool=False -> (pd.DataFrame, pd.DataFrame):
+                            compute_q_z_score: bool = False) -> (pd.DataFrame, pd.DataFrame):
         """
         This method calculates the d-squared statistic and the absolute prediction error (q_dist) for each gene, 
         stratified by cell type. It optionally computes a relative q_dist (or z-scored q_dist metric if compute_q_z_score is set to true) if baseline predicted counts are provided.
@@ -384,8 +386,6 @@ class GeneRegression:
         n, g = counts_ng.shape[:2]
         unique_cell_types = np.unique(cell_type_ids)
         k = len(unique_cell_types)
-        
-        import sklearn
         
         ## compute d_sq, stratified by cell type 
         d_sq_kg = np.zeros((unique_cell_types.shape[0],g))
@@ -419,12 +419,15 @@ class GeneRegression:
             
             q_ng_baseline = np.absolute(pred_counts_ng_baseline - counts_ng)
 
+            q_kg_baseline = np.zeros((unique_cell_types.shape[0], g))
             q_baseline_mu_kg = np.zeros((unique_cell_types.shape[0], g))
             q_baseline_std_kg = np.zeros((unique_cell_types.shape[0], g))
 
             for k, cell_type in enumerate(unique_cell_types):
                 mask = (cell_type_ids == cell_type)
                 q_tg_baseline = q_ng_baseline[mask]
+                
+                q_kg_baseline = np.mean(q_tg_baseline, axis=0)
 
                 sample_ind = np.random.choice(q_tg_baseline.shape[0], size=baseline_sample_size)
                 q_tg_baseline_sample = q_tg_baseline[sample_ind]
@@ -444,11 +447,21 @@ class GeneRegression:
             # calculate q-dist normalized by baseline
             else:
                              
-                rel_q_kg = (q_kg - q_baseline_mu_kg)/q_baseline_std_kg
-                             
-                rel_q_gk = np.transpose(rel_q_gk)
+                rel_q_ng = (q_ng - q_ng_baseline)/q_ng_baseline
+                
+                rel_q_kg = np.zeros((unique_cell_types.shape[0], g))
+                
+                for k, cell_type in enumerate(unique_cell_types):
+                    mask = (cell_type_ids == cell_type)
+                    rel_q_tg = rel_q_ng[mask]
+                    rel_q_kg[k] = np.mean(rel_q_tg, axis=0)
+                    
+                rel_q_kg = (q_kg - q_kg_baseline)/q_kg_baseline
+                    
+                rel_q_gk = np.transpose(rel_q_kg)
                 df_rel_q_gk = pd.DataFrame(rel_q_gk, columns=unique_cell_types)
                 df_rel_q_gk.index = gene_names
+                
                              
                 return df_d_sq_gk, df_rel_q_gk
         else:

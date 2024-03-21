@@ -52,7 +52,7 @@ def filter_anndata(anndata: AnnData,
         anndata.obs["keep_ctype"] = anndata.obs[cell_type_key].apply(lambda x: x in cell_type_keep)
         
         ## filter anndata according to criteria
-        anndata = anndata[anndata.obs["total_counts"] > fc_bc_min_umi, :] 
+        anndata = anndata[anndata.obs["total_counts"] > fc_bc_min_umi, :]
         anndata = anndata[anndata.obs["total_counts"] < fc_bc_max_umi, :] 
         anndata = anndata[anndata.obs["n_genes_by_counts"] > fc_bc_min_n_genes_by_counts, :] 
         anndata = anndata[anndata.obs["n_genes_by_counts"] < fc_bc_max_n_genes_by_counts, :] 

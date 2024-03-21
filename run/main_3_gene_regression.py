@@ -256,7 +256,7 @@ def parse_args(argv: List[str]) -> dict:
                         help="Scaling factor for log umi coefficient", default=10e3)
     
     parser.add_argument("--cell_type_prop_scaling", type=int, required=False,
-                        help="Scaling factor for cell type proportions coefficients", default=10e3)
+                        help="Scaling factor for cell type proportions coefficients", default=10e1)
     
     parser.add_argument("--category_key", type=str, required=False,
                         help="Key in obsm containing categories", default="rctd_doublet_weights")
@@ -279,8 +279,14 @@ def parse_args(argv: List[str]) -> dict:
     parser.add_argument("--cell_types", type=str, nargs='*', required=False,
                         help="Cell types to run regression on; defaults to all cell types")
     
-    parser.add_argument("--filter", type=int, required=False,
+    parser.add_argument("--filter", type=float, required=False,
                         help="If provided, set outlier values beyond filter threshold to 0")
+    
+    parser.add_argument("--OMP_NUM_THREADS", type=str, required=False, default="4",
+                    help="Set number of OMP threads for Poisson regression")
+    
+    parser.add_argument("--MKL_NUM_THREADS", type=str, required=False, default="4",
+                help="Set number of MKL threads for Poisson regression")
     
     ## TODO: add the rest of the filtering criteria
     
@@ -309,6 +315,10 @@ if __name__ == '__main__':
             fname_list.append(f)
     print(fname_list)
     
+    ## set num threads ; need to set in environment before running script
+    # os.environ["OMP_NUM_THREADS"] = config_dict_["OMP_NUM_THREADS"]
+    # os.environ["MKL_NUM_THREADS"] = config_dict_["MKL_NUM_THREADS"]
+    
     ## read in all anndatas and create one big anndata out of them
     adata_list = []
 
@@ -323,9 +333,10 @@ if __name__ == '__main__':
         
     merged_anndata = merge_anndatas_inner_join(adata_list)
     
-    ## TODO: only do this if cell type key isn't already present
-    ## add majority cell type labels
-    merged_anndata.obs[config_dict_["cell_type_key"]] = pd.DataFrame(merged_anndata.obsm[config_dict_["cell_type_proportions_key"]].idxmax(axis=1))
+    ## TODO: check this if statement works as expected
+    ## add majority cell type labels if not already present
+    if config_dict_["cell_type_key"] not in list(merged_anndata.obs.keys()):
+        merged_anndata.obs[config_dict_["cell_type_key"]] = pd.DataFrame(merged_anndata.obsm[config_dict_["cell_type_proportions_key"]].idxmax(axis=1))
     
     ## loop regression over all cell types
     if config_dict_["cell_types"] is not None:
@@ -344,14 +355,17 @@ if __name__ == '__main__':
         ## assert that cell_types are in anndata.obs
         
         merged_anndata_ctype = merged_anndata[merged_anndata.obs[config_dict_["cell_type_key"]] == ctype]
+        
+
         ## flag in cell type prop key
 
         filtered_anndata = filter_anndata(merged_anndata_ctype, cell_type_key = config_dict_["cell_type_key"], fg_bc_high_var=config_dict_["fg_bc_high_var"], fc_bc_min_umi=config_dict_["fc_bc_min_umi"], fg_bc_min_pct_cells_by_counts=config_dict_["fg_bc_min_pct_cells_by_counts"])
 
         # filter spatial covariates 
         if config_dict_["filter"] is not None:
-            threshold = config_dict_["filter"]
-            filtered_anndata.obsm[config_dict_["feature_key"]][filtered_anndata.obsm[config_dict_["feature_key"] > threshold] = 0
+            threshold = config_dict_["filter"]   
+          
+            filtered_anndata.obsm[config_dict_["feature_key"]][filtered_anndata.obsm[config_dict_["feature_key"]] > threshold] = 0
                                                                
 
 
@@ -359,9 +373,9 @@ if __name__ == '__main__':
         ## If running regularization sweep, train_test_val_split_id must be present in obs
 
         if config_dict_["regularization_sweep"]:
+            
             ## TODO: test this assert statement                                                   
-            assert "train_test_val_split_id" in filtered_anndata.obs.keys() /
-                "Train_test_val_split_id must be present in obs to run regularization sweep"
+            assert "train_test_val_split_id" in filtered_anndata.obs.keys(), "Train_test_val_split_id must be present in obs to run regularization sweep"
                                                                
             train_anndata = filtered_anndata[filtered_anndata.obs['train_test_val_split_id'] == 0]
             val_anndata = filtered_anndata[filtered_anndata.obs['train_test_val_split_id'] == 1]

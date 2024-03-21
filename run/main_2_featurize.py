@@ -74,13 +74,17 @@ def parse_args(argv: List[str]) -> dict:
     parser.add_argument("--frac_overlap", type=float, 
                         default=0.0, help="How much overlap when tiling sparse image into patches to compute patch-level features")
     parser.add_argument("--spot_feature_batch_size", type=int, 
-                        default=1024, help="Batch size for computing spot features")
+                        default=512, help="Batch size for computing spot features")
+    parser.add_argument("--patch_train_test_split", type=bool, default=False,
+                        help="If true, run spatial train test split at patch level")
     parser.add_argument("--ncv_patch_cluster_res", type=float, 
                         default=0.4, help="Resolution for clustering patches by NCV (determines patch-level train/test split)")
     parser.add_argument("--ssl_model", type=str, default=None,
                         choices=["barlow", "dino", "vae", "simclr"],
                         help="the Self Supervised Learning framework corresponding to the checkpoint. In most cases \
                         this parameter is not required and the ssl_model will be inferred from the checkpoint.")
+    parser.add_argument("--suffix", type=str, default=None,
+                    help="If specified, the suffix is attended to the end of each filename output is written to.")
 
     # if specified ncv_r is computed
     parser.add_argument("--ncv_r", type=float, nargs='*', default=None,
@@ -91,6 +95,7 @@ def parse_args(argv: List[str]) -> dict:
     parser.add_argument("--ncv_k", type=int, nargs='*', default=None,
                         help="If specified the neighborhood composition vector with k neighbours is computed. \
                              If it is a list multiple ncv corresponding to all neighbours k will be computed.")
+
 
     # Add help at the very end
     parser = argparse.ArgumentParser(parents=[parser], add_help=True)
@@ -176,12 +181,13 @@ if __name__ == '__main__':
                                           strategy_patch_to_image=config_dict_["strategy_patch_to_image"],
                                           strategy_image_to_spot=config_dict_["strategy_image_to_spot"])
 
-        ## run spatial train_test_split at patch level
-        _ = sparse_img.patch_train_test_val_split(feature_xywh=config_dict_["feature_key"] + "_patch_xywh",
-                                    res=config_dict_["ncv_patch_cluster_res"], 
-                                    stratify=True,
-                                    write_to_spot_dictionary=True, 
-                                    return_patches=True)
+        if config_dict_["patch_train_test_split"]:
+            ## run spatial train_test_split at patch level
+            _ = sparse_img.patch_train_test_val_split(feature_xywh=config_dict_["feature_key"] + "_patch_xywh",
+                                        res=config_dict_["ncv_patch_cluster_res"], 
+                                        stratify=True,
+                                        write_to_spot_dictionary=True, 
+                                        return_patches=True)
         
         print("Computing spot features")
         sparse_img.compute_spot_features(feature_name=config_dict_["feature_key"] + "_spot_features",
@@ -198,7 +204,10 @@ if __name__ == '__main__':
         new_anndata = sparse_img.to_anndata(export_full_state=True)
         
         ## TODO: user optional suffix
-        out_file_name = fname[:-5] + "_featurized.h5ad" 
+        if config_dict_["suffix"] is not None:
+            out_file_name = fname[:-5] + "suffix.h5ad" 
+        else:
+            out_file_name = fname
         
         out_file=os.path.join(config_dict_["anndata_out"], out_file_name)
         new_anndata.write(filename=out_file)

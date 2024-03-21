@@ -389,7 +389,7 @@ class CropperSparseTensor(CropperTensor):
         n_valid_patches = valid_patch.sum().item()
         
         
-        if n_valid_patches < n_crops:
+        if n_valid_patches < n_crops and strategy == 'random':
             # import warnings
             # warnings.warn("Warning. Not enough valid crops found. Change the parameters. ")
             print("Warning. Only {0} valid crops found when requested {1}. \

@@ -842,7 +842,8 @@ class SparseImage:
             fraction_patch_overlap: float = 0.0,
             overwrite: bool = False,
             return_crops: bool = False,
-            compute_ncv: bool = True) -> Union[torch.Tensor, None]:
+            compute_ncv: bool = True,
+            ncv_prefix: str = None) -> Union[torch.Tensor, None]:
         """
         Split the sparse image into (possibly overlapping) patches.
         Each patch is analyzed by the (pretrained) model.
@@ -867,7 +868,8 @@ class SparseImage:
             return_crops: if True the model returns a (batched) torch.Tensor of shape
                 :math:`(\\text{n_patches_max}, c, w, h)` with all the crops which were fed to the model.
                 Default is False.
-            compute_ncv: if True, neighborhood composition of each patch is also computed and stored in the patch_properties_dict under the :attr:`patch_ncv`.
+            compute_ncv: if True, neighborhood composition of each patch is also computed and stored in the patch_properties_dict under the :attr:`ncv_prefix + _patch_ncv`.
+            ncv_prefix: if provided, prepended to key under which patch ncv is saved in patch_properties_dict
 
         Returns:
             patches: If :attr:`return_crops` is True returns tensor of shape
@@ -1039,8 +1041,12 @@ class SparseImage:
                 
             patch_ncvs = torch.tensor(np.array(patch_ncvs))
             
-            self.write_to_patch_dictionary(
-                key='patch_ncv', values=patch_ncvs, patches_xywh=patches_xywh, overwrite=overwrite)
+            if ncv_prefix is None:
+                self.write_to_patch_dictionary(
+                    key='patch_ncv', values=patch_ncvs, patches_xywh=patches_xywh, overwrite=overwrite)
+            else:
+                self.write_to_patch_dictionary(
+                    key=ncv_prefix + '_patch_ncv', values=patch_ncvs, patches_xywh=patches_xywh, overwrite=overwrite)
 
         if return_crops:
             return patches
@@ -1124,7 +1130,12 @@ class SparseImage:
         if torch.cuda.is_available():
             model = model.cuda()
             
+        i = 0
         while n_patches < n_patches_max:
+            
+            print(f'batch: {i}')
+            i += 1
+            
             n_tmp = min(batch_size, n_patches_max - n_patches)
 
             crops_tmp = crops[n_patches:n_patches+n_tmp]
@@ -1464,7 +1475,6 @@ class SparseImage:
                     overwrite=True)
             
         
-    ## TODO: test this function
     def get_spot_dictionary_subset_patch(self,
                                          patch_key: str,
                                          spot_keys: List[str]) -> dict:
@@ -1983,18 +1993,32 @@ class SparseImage:
         try:
             state_dict = anndata.uns.pop("sparse_image_state_dict")
 
-            sparse_img_object = cls(
-                spot_properties_dict=spot_dictionary,
-                x_key="x_key",
-                y_key="y_key",
-                category_key=category_key,
-                categories_to_codes=state_dict["categories_to_codes"],
-                pixel_size=state_dict["pixel_size"],
-                padding=state_dict["padding"],
-                patch_properties_dict=state_dict["patch_properties_dict"],
-                image_properties_dict=state_dict["image_properties_dict"],
-                anndata=anndata,
-                sample_status = anndata.uns[status_key]) ## double check
+            if status_key in anndata.uns.keys():
+                sparse_img_object = cls(
+                    spot_properties_dict=spot_dictionary,
+                    x_key="x_key",
+                    y_key="y_key",
+                    category_key=category_key,
+                    categories_to_codes=state_dict["categories_to_codes"],
+                    pixel_size=state_dict["pixel_size"],
+                    padding=state_dict["padding"],
+                    patch_properties_dict=state_dict["patch_properties_dict"],
+                    image_properties_dict=state_dict["image_properties_dict"],
+                    anndata=anndata,
+                    sample_status = anndata.uns[status_key]) 
+            else:
+                sparse_img_object = cls(
+                    spot_properties_dict=spot_dictionary,
+                    x_key="x_key",
+                    y_key="y_key",
+                    category_key=category_key,
+                    categories_to_codes=state_dict["categories_to_codes"],
+                    pixel_size=state_dict["pixel_size"],
+                    padding=state_dict["padding"],
+                    patch_properties_dict=state_dict["patch_properties_dict"],
+                    image_properties_dict=state_dict["image_properties_dict"],
+                    anndata=anndata) 
+                
             return sparse_img_object
 
         except KeyError:
@@ -2010,35 +2034,51 @@ class SparseImage:
             if pixel_size is None:
                 mean_dnn, median_dnn = cls._check_mean_median_spacing(torch.tensor(x_raw), torch.tensor(y_raw))
                 pixel_size = 0.25 * median_dnn
-            try: 
+            
+            if status_key in anndata.uns.keys():
+                try: 
+                    sparse_img_obj = cls(
+                        spot_properties_dict=spot_dictionary,
+                        x_key="x_key",
+                        y_key="y_key",
+                        category_key=category_key,
+                        categories_to_codes=categories_to_channels,
+                        pixel_size=pixel_size,
+                        padding=padding,
+                        patch_properties_dict=None,
+                        image_properties_dict=None,
+                        anndata=anndata,
+                        sample_status = anndata.uns[status_key] 
+                    )
+
+                except KeyError:
+                    sparse_img_obj = cls(
+                        spot_properties_dict=spot_dictionary,
+                        x_key="x_key",
+                        y_key="y_key",
+                        category_key=category_key,
+                        categories_to_codes=categories_to_channels,
+                        pixel_size=pixel_size,
+                        padding=padding,
+                        patch_properties_dict=None,
+                        image_properties_dict=None,
+                        anndata=anndata,
+                        sample_status = anndata.obs[status_key][0] ## assumes anndata.obs[status_key] is all the same
+                    )
+            else:
                 sparse_img_obj = cls(
-                    spot_properties_dict=spot_dictionary,
-                    x_key="x_key",
-                    y_key="y_key",
-                    category_key=category_key,
-                    categories_to_codes=categories_to_channels,
-                    pixel_size=pixel_size,
-                    padding=padding,
-                    patch_properties_dict=None,
-                    image_properties_dict=None,
-                    anndata=anndata,
-                    sample_status = anndata.uns[status_key] ## double check; 
-                )
+                        spot_properties_dict=spot_dictionary,
+                        x_key="x_key",
+                        y_key="y_key",
+                        category_key=category_key,
+                        categories_to_codes=categories_to_channels,
+                        pixel_size=pixel_size,
+                        padding=padding,
+                        patch_properties_dict=None,
+                        image_properties_dict=None,
+                        anndata=anndata
+                    )
                 
-            except KeyError:
-                sparse_img_obj = cls(
-                    spot_properties_dict=spot_dictionary,
-                    x_key="x_key",
-                    y_key="y_key",
-                    category_key=category_key,
-                    categories_to_codes=categories_to_channels,
-                    pixel_size=pixel_size,
-                    padding=padding,
-                    patch_properties_dict=None,
-                    image_properties_dict=None,
-                    anndata=anndata,
-                    sample_status = anndata.obs[status_key][0] ## double check; ## assumes anndata.obs[status_key] is all the same
-                )
 
         return sparse_img_obj
 

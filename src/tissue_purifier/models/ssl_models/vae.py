@@ -194,6 +194,7 @@ class VaeModel(SslModelBase):
 
             # validation
             val_iomin_threshold: float = 0.0,
+            run_classify_regress: bool = True,
             **kwargs,
             ):
         """
@@ -224,7 +225,7 @@ class VaeModel(SslModelBase):
             val_iomin_threshold: during validation, only patches with Intersection Over MinArea < IoMin_threshold
                 are used. Should be in [0.0, 1.0). If 0 only strictly non-overlapping patches are allowed.
         """
-        super(VaeModel, self).__init__(val_iomin_threshold=val_iomin_threshold)
+        super(VaeModel, self).__init__(val_iomin_threshold=val_iomin_threshold, run_classify_regress=run_classify_regress)
 
         # Important: This property activates manual optimization.
         self.automatic_optimization = False
@@ -373,8 +374,18 @@ class VaeModel(SslModelBase):
         # compute both kl and derivative of kl w.r.t. mu and log_var
         assert len(mu.shape) == 2
         batch_size = mu.shape[0]
-        kl_loss = 0.5 * (mu ** 2 + log_var.exp() - log_var - 1.0).sum() / batch_size
-        mse_loss = F.mse_loss(x_in, x_rec, reduction='mean')
+        #kl_loss = 0.5 * (mu ** 2 + log_var.exp() - log_var - 1.0).sum() / batch_size
+        print("batch size:")
+        print(batch_size)
+        kl_temp = mu ** 2 + log_var.exp() - log_var - 1.0
+        print("kl shape:")
+        print(kl_temp.shape)
+        kl_loss = torch.mean(-0.5 * torch.sum(1.0 + log_var - mu ** 2 - log_var.exp(), dim=1), dim=0)
+        
+        ## from pytorch vae
+        # kld_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1), dim = 0)
+        
+        mse_loss = F.mse_loss(x_in, x_rec, reduction='mean') # change reduction from mean to sum
 
         return {
             'mse_loss': mse_loss,
@@ -422,6 +433,13 @@ class VaeModel(SslModelBase):
             log_var=dict_vae['log_var']
         )
         assert torch.all(torch.isfinite(dict_vae['mu'])), "In training step. mu in NOT finite"
+        
+        ## debugging
+        if not torch.all(torch.isfinite(dict_vae['x_rec'])):
+            print("debugging x_rec not finite")
+            print(dict_vae['x_rec'])
+            
+            
         assert torch.all(torch.isfinite(dict_vae['x_rec'])), "In training step. x_rec is NOT finite"
 
         # Manual optimization
