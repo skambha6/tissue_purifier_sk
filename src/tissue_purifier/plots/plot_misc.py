@@ -363,10 +363,18 @@ def scatter(
         fig=None,
         ax=None,
         show_legend=True,
+        legend_fontsize=20,
+        legend_markersize=20,
         show_colorbar=True,
+        colorbar_fontsize=20,
+        colorbar_label=None,
+        colorbar_labelpad=20,
+        cbar_ticks=None,
         blacklist={},
         ticks_off=True,
         border_off=True,
+        x_lim=None,
+        y_lim=None,
         **kwargs):
     """
     Plot anndata feature spatially e.g. cell-type
@@ -404,10 +412,15 @@ def scatter(
         
     if mode == 'continuous':
         sc = ax.scatter(x_vals, y_vals, c=c_vals, cmap=cmap, marker='h', edgecolors='none', s=s, **kwargs)
+
         if show_colorbar:
             ax_divider = make_axes_locatable(ax)
             cax = ax_divider.append_axes("right", size="7%", pad="2%")
             cb = fig.colorbar(sc, cax=cax)
+            cb.ax.tick_params(labelsize=colorbar_fontsize)
+            if cbar_ticks is not None:
+                cb.ax.set_yticks(cbar_ticks)
+            cb.set_label(colorbar_label, rotation=270, fontsize=colorbar_fontsize, labelpad=colorbar_labelpad)
 
     elif mode == 'categorical':
         categories = np.unique(c_vals)
@@ -425,14 +438,21 @@ def scatter(
             ax.scatter(x_vals[mask], y_vals[mask], c=c, marker='h', edgecolors='none', s=s, label=category, **kwargs)
         
         if show_legend:
-            ax.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+            ax.legend(bbox_to_anchor=(1.04, 1), loc="upper left", fontsize=legend_fontsize, frameon=False, markerscale=legend_markersize)
+
         
     else:
         raise ValueError
         
     ax.set_aspect('equal', 'box')
-    ax.set_xlim((np.min(adata.obs[x_key].values), np.max(adata.obs[x_key].values)))
-    ax.set_ylim((np.min(adata.obs[y_key].values), np.max(adata.obs[y_key].values)))
+    if x_lim == None:
+        ax.set_xlim((np.min(adata.obs[x_key].values), np.max(adata.obs[x_key].values)))
+    else:
+        ax.set_xlim(x_lim[0], x_lim[1])
+    if y_lim == None:
+        ax.set_ylim((np.min(adata.obs[y_key].values), np.max(adata.obs[y_key].values)))
+    else:
+        ax.set_ylim(y_lim[0], y_lim[1])
     ax.axes.invert_yaxis()
     
     if ticks_off:

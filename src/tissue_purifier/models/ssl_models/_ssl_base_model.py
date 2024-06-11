@@ -2,7 +2,7 @@ import numpy
 import torch
 import pandas
 from typing import Dict, List, Sequence, Any
-from neptune.new.types import File
+from neptune.types import File
 from pytorch_lightning import LightningModule
 
 from sklearn.base import is_regressor, is_classifier

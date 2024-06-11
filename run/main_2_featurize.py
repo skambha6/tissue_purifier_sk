@@ -74,7 +74,7 @@ def parse_args(argv: List[str]) -> dict:
     parser.add_argument("--frac_overlap", type=float, 
                         default=0.0, help="How much overlap when tiling sparse image into patches to compute patch-level features")
     parser.add_argument("--spot_feature_batch_size", type=int, 
-                        default=512, help="Batch size for computing spot features")
+                        default=1024, help="Batch size for computing spot features")
     parser.add_argument("--patch_train_test_split", type=bool, default=False,
                         help="If true, run spatial train test split at patch level")
     parser.add_argument("--ncv_patch_cluster_res", type=float, 

@@ -267,7 +267,7 @@ class DropChannel(torch.nn.Module):
         else:
             tmp = torch.tensor(relative_frequency, dtype=torch.float)
             assert torch.all(tmp >= 0.0), "Relative frequency must be None or an Iterable of non-negative values"
-            self.relative_frequency = (tmp / tmp.sum()).cpu().numpy()
+            self.relative_frequency = (tmp / tmp.sum()).cpu()#.numpy()
             self._cumulative_frequency = torch.cumsum(self.relative_frequency, dim=0)
 
     def __repr__(self):
@@ -299,7 +299,7 @@ class DropChannel(torch.nn.Module):
 
 # class Jitter(torch.nn.Module):
 #     """
-#     Add Gaussian noise to coordinates (to simulate fact that cells are not located exactly where beads are
+#     Add Gaussian noise to coordinates (to simulate fact that cells are not located exactly where beads are)
 #     """
 
 class RandomStraightCut(torch.nn.Module):

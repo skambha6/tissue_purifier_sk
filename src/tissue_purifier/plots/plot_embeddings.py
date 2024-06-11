@@ -15,7 +15,8 @@ def plot_embeddings(
         sup_title: str = None,
         n_col: int = 3,
         cmap: Colormap = 'inferno',
-        num_categorical: int = 10) -> plt.Figure:
+        num_categorical: int = 10,
+        **kwargs) -> plt.Figure:
     """
     Takes a dictionary with embeddings and multiple annotations and make a multi-panel figure with each panel showing
     one annotation.
@@ -77,7 +78,8 @@ def plot_embeddings(
                     return_fig=True,
                     show=False,
                     ncols=n_col,
-                    cmap=cmap)
+                    cmap=cmap,
+                    **kwargs)
     if sup_title:
         _ = fig.suptitle(sup_title)
 

@@ -9,9 +9,9 @@ from typing import List
 from datetime import timedelta
 
 import pytorch_lightning as pl
-from pytorch_lightning.plugins import DDPPlugin
+# from pytorch_lightning.plugins import DDPPlugin
 from pytorch_lightning.strategies import DDPStrategy
-from pytorch_lightning.profiler import SimpleProfiler, PassThroughProfiler, AdvancedProfiler
+from pytorch_lightning.profilers import SimpleProfiler, PassThroughProfiler, AdvancedProfiler
 from pytorch_lightning.trainer import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 
@@ -162,12 +162,11 @@ def initialization(
         precision = new_dict["precision"]
         if config_dict["ssl_model"] == "vae":
             # vae uses manual optimization. I need to set this flag to true
-            strategy = DDPPlugin(find_unused_parameters=True)
+            strategy = DDPStrategy(find_unused_parameters=True) 
         else:
             # everything else works with automatic differentiation. Set this to false for speed
-            strategy = DDPStrategy(find_unused_parameters=False)
-            # strategy = DDPPlugin(find_unused_parameters=False)
-            # strategy = "ddp"
+            # strategy = DDPStrategy(find_unused_parameters=False)
+            strategy = "ddp" # defaults to false in lightning 2.0
 
     # monitor the learning rate. This will work both when manual or scheduler is used to change the learning rate.
     lr_monitor = LearningRateMonitor(logging_interval='epoch', log_momentum=True)

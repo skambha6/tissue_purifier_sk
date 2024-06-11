@@ -4,6 +4,7 @@ import numpy
 import numpy as np
 import pandas
 import copy
+import tqdm
 import torch
 from tissue_purifier.models.patch_analyzer import SpatialAutocorrelation
 from tissue_purifier.data.dataset import CropperSparseTensor
@@ -1130,34 +1131,34 @@ class SparseImage:
         if torch.cuda.is_available():
             model = model.cuda()
             
-        i = 0
-        while n_patches < n_patches_max:
-            
-            print(f'batch: {i}')
-            i += 1
-            
-            n_tmp = min(batch_size, n_patches_max - n_patches)
-
-            crops_tmp = crops[n_patches:n_patches+n_tmp]
-            
-            patches_tmp = datamodule.trsfm_test(crops_tmp)
-            
-            if torch.cuda.is_available():
-                patches_tmp = patches_tmp.cuda()
+        total_batches = n_patches_max // batch_size
+        with tqdm.tqdm(total=total_batches) as pbar:
+            while n_patches < n_patches_max:
                 
-            features_tmp = model(patches_tmp)
-            if isinstance(features_tmp, torch.Tensor):
-                all_features.append(features_tmp)
-            elif isinstance(features_tmp, numpy.ndarray):
-                all_features.append(torch.from_numpy(features_tmp))
-            elif isinstance(features_tmp, list):
-                all_features += features_tmp
-            else:
-                raise NotImplementedError
+                pbar.update(1)
+                
+                n_tmp = min(batch_size, n_patches_max - n_patches)
 
-            all_crops += crops
-            
-            n_patches = n_patches + n_tmp
+                crops_tmp = crops[n_patches:n_patches+n_tmp]
+                
+                patches_tmp = datamodule.trsfm_test(crops_tmp)
+                
+                if torch.cuda.is_available():
+                    patches_tmp = patches_tmp.cuda()
+                    
+                features_tmp = model(patches_tmp)
+                if isinstance(features_tmp, torch.Tensor):
+                    all_features.append(features_tmp)
+                elif isinstance(features_tmp, numpy.ndarray):
+                    all_features.append(torch.from_numpy(features_tmp))
+                elif isinstance(features_tmp, list):
+                    all_features += features_tmp
+                else:
+                    raise NotImplementedError
+
+                all_crops += crops
+                
+                n_patches = n_patches + n_tmp
             
         ## write to spot dictionary at the end 
         ## todo: allow user supplied suffix
