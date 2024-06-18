@@ -319,6 +319,9 @@ def show_raw_all_channels(
         colors = _get_color_tensor(cmap, ch)
     colors = colors.to(data[0].device).float()
 
+    print("colors:")
+    print(colors)
+
     if isinstance(data, torch.Tensor):
         imgs = torch.einsum('...cwh,cj->...jwh', data, colors).detach().clone().cpu()
     else:

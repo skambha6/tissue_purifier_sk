@@ -905,7 +905,7 @@ class SparseImage:
                 patches_h += [crop.shape[-1] for crop in crops]
                 n_patches += len(x_locs)
 
-                ## TODO: bug when apply_transform is false
+                ## TODO: requires apply_transform to be set to true to work
                 if apply_transform:
                     patches = datamodule.trsfm_test(crops)
                     all_patches.append(patches.detach().cpu())
@@ -943,7 +943,6 @@ class SparseImage:
 
             all_patches.append(patches.detach().cpu())
 
-            ## TODO: add batch size
             features_tmp = model(patches)
             if isinstance(features_tmp, torch.Tensor):
                 all_features.append(features_tmp)
@@ -1161,7 +1160,6 @@ class SparseImage:
                 n_patches = n_patches + n_tmp
             
         ## write to spot dictionary at the end 
-        ## todo: allow user supplied suffix
         all_features = torch.cat(all_features,dim=0)
         self.write_to_spot_dictionary(key=feature_name, values=all_features)
         self.write_to_spot_dictionary(key=feature_name + "_valid", values=valid_crops)
@@ -1173,9 +1171,13 @@ class SparseImage:
         print("Finished computing spot features.")
     
     
-    def compute_patch_ncv_clusters(self, feature_xywh: str=None, res: int=0.4):
+    def compute_patch_ncv_clusters(self, feature_xywh: str,
+                                        res: int=0.4):
         """
             Utility function to compute leiden clusters with particular resolution on patch NCV vectors
+            Args:
+                feature_xywh: key in patch_properties_dict for xywh of model features
+                res: resolution parameter for leiden clustering
         """
                     
         assert "patch_ncv" in self._patch_properties_dict.keys(), \
@@ -1309,21 +1311,20 @@ class SparseImage:
             leiden_clusters = self.compute_patch_ncv_clusters(feature_xywh, res)
 
         ## Split patches into train/test, stratifying by NCV clusters
-        ## write custom train_test_split function in utils
         
-        ##TODO: see why this isn't working as expected
         if stratify:
             try:
-                train_patch_xywh, test_patch_xywh = train_test_split(self._patch_properties_dict[feature_xywh], train_size=train_size, test_size=test_size, stratify=leiden_clusters,
+                train_patch_xywh, test_patch_xywh, train_idx, test_idx = train_test_split(self._patch_properties_dict[feature_xywh], np.arange(self._patch_properties_dict[feature_xywh].shape[0]), train_size=train_size, test_size=test_size, stratify=leiden_clusters,
                                                                      random_state=random_state)
-            except ValueError: #ValueError as ve: ##TODO: specify for the appropriate exception here
-                # raise Exception("ValueError: " + str(ve))
+            except ValueError: 
                 raise Exception("Not enough samples in each cluster to split the data. Try a smaller res")
         else:
-            train_patch_xywh, test_patch_xywh = train_test_split(self._patch_properties_dict[feature_xywh], train_size=train_size, test_size=test_size,
+            train_patch_xywh, test_patch_xywh, train_idx, test_idx = train_test_split(self._patch_properties_dict[feature_xywh], np.arange(self._patch_properties_dict[feature_xywh].shape[0]), train_size=train_size, test_size=test_size,
                                                                 random_state=random_state)
         
-        train_test_id = np.concatenate((np.zeros(train_patch_xywh.shape[0]), np.ones(test_patch_xywh.shape[0])))
+        ## get idx of train/test/val split
+        train_test_id = np.concatenate((np.zeros(train_patch_xywh.shape[0]), np.zeros(test_patch_xywh.shape[0])))
+        train_test_id[test_idx] = 1
     
         sample_patch_xywh = np.concatenate((train_patch_xywh, test_patch_xywh))
         
@@ -1371,7 +1372,7 @@ class SparseImage:
         ## Split patches into train/test, stratifying by NCV clusters
         ## write custom train_test_split function in utils
         
-        
+
         # Normalize the train/test/val sizes
         norm0 = train_size + test_size + val_size
         train_size_norm0 = train_size / norm0
@@ -1381,24 +1382,23 @@ class SparseImage:
         test_size_norm1 = test_size / norm1
         val_size_norm1 = val_size / norm1
         
-        ##TODO: see why this isn't working as expected
         if stratify:
             try:
-                train_patch_xywh, test_and_val_patch_xywh, train_leiden_clusters, test_and_val_leiden_clusters = train_test_split(self._patch_properties_dict[feature_xywh],
-                                                                                       leiden_clusters, train_size = train_size, test_size = test_and_val_size_norm0, 
+                train_patch_xywh, test_and_val_patch_xywh, train_leiden_clusters, test_and_val_leiden_clusters, train_idx, test_and_val_idx = train_test_split(self._patch_properties_dict[feature_xywh],
+                                                                                       leiden_clusters, np.arange(self._patch_properties_dict[feature_xywh].shape[0]), train_size = train_size, test_size = test_and_val_size_norm0, 
                                                                                        stratify=leiden_clusters)
-                val_patch_xywh, test_patch_xywh = train_test_split(test_and_val_patch_xywh, train_size=val_size_norm1, test_size=test_size_norm1,  
+                val_patch_xywh, test_patch_xywh, val_idx, test_idx = train_test_split(test_and_val_patch_xywh, test_and_val_idx, train_size=val_size_norm1, test_size=test_size_norm1,  
                                                                    stratify=test_and_val_leiden_clusters)
-            except ValueError: #ValueError as ve: ##TODO: specify for the appropriate exception here
-                # raise Exception("ValueError: " + str(ve))
+            except ValueError: 
                 raise Exception("Not enough samples in each cluster to split the data. Try a smaller res or adjusting train/test/val size")
         else:
-            train_patch_xywh, test_and_val_patch_xywh = train_test_split(self._patch_properties_dict[feature_xywh], train_size = train_size, test_size = test_and_val_size_norm0)
-            val_patch_xywh, test_patch_xywh = train_test_split(test_and_val_patch_xywh, train_size=val_size_norm1, test_size=test_size_norm1)
+            train_patch_xywh, test_and_val_patch_xywh, train_idx, test_and_val_idx = train_test_split(self._patch_properties_dict[feature_xywh], np.arange(self._patch_properties_dict[feature_xywh].shape[0]), train_size = train_size, test_size = test_and_val_size_norm0)
+            val_patch_xywh, test_patch_xywh, val_idx, test_idx = train_test_split(test_and_val_patch_xywh, test_and_val_idx, train_size=val_size_norm1, test_size=test_size_norm1)
         
-        ## TODO: fix this (incorrect, gives 000 1111 222); need to find actual indices of train/test/val patches
-        train_test_val_id = np.concatenate((np.zeros(train_patch_xywh.shape[0]), np.ones(test_patch_xywh.shape[0]), 2*np.ones(val_patch_xywh.shape[0])))
-    
+        ## get idx of train/test/val split
+        train_test_val_id = np.concatenate((np.zeros(train_patch_xywh.shape[0]), np.zeros(test_patch_xywh.shape[0]), np.zeros(val_patch_xywh.shape[0])))
+        train_test_val_id[test_idx] = 1
+        train_test_val_id[val_idx] = 2
         sample_patch_xywh = np.concatenate((train_patch_xywh, test_patch_xywh, val_patch_xywh))
         
         ## Write to patch dictionary
@@ -1434,14 +1434,12 @@ class SparseImage:
             random_state: affects the ordering of the indices during shuffling; pass an int for reproducibility 
         """
         
-        
         ## Cluster Patch NCVs
         if stratify:
             leiden_clusters = self.compute_patch_ncv_clusters(feature_xywh, res)
         
         ## run StratifiedKFold 
         if stratify:
-            # try:
             skf = StratifiedKFold(n_splits = n_splits, shuffle=True, random_state=random_state)
             n = skf.get_n_splits(self._patch_properties_dict[feature_xywh],leiden_clusters)
             for i, (train_index, test_index) in enumerate(skf.split(self._patch_properties_dict[feature_xywh],leiden_clusters)):
@@ -1456,8 +1454,6 @@ class SparseImage:
                      self.transfer_patch_to_spot(
                         keys_to_transfer=f"train_test_split_fold_{i}_id",
                         overwrite=True)
-            # except ValueError:
-            #     raise Exception("Not enough samples in each cluster to split the data. Try a smaller res or adjusting train/test/val size")
         else:
             kf = KFold(n_splits = n_splits, shuffle=True, random_state=random_state)
             n = kf.get_n_splits(self._patch_properties_dict[feature_xywh])
@@ -1657,7 +1653,7 @@ class SparseImage:
                     dh_from_center = torch.linspace(start=-0.5 * (h - 1), end=0.5 * (h - 1), steps=h)
                     d2_from_center: torch.Tensor = dw_from_center[:, None].pow(2) + dh_from_center[None, :].pow(2)
                     
-                    ## TODO: explicitly do this all on CPU?
+                    ## explicitly do this all on CPU?
                     d2_from_center = d2_from_center.to(patch_quantity.device)
                     
                     mask = (d2_from_center < tmp_distance[x:x + w, y:y + h])  # shape (w, h)
@@ -1767,7 +1763,6 @@ class SparseImage:
 
             self.write_to_spot_dictionary(key=key, values=interpolated_values.permute(dims=(1, 0)), overwrite=overwrite)
 
-    ### TODO: double-check this function
     def transfer_spot_to_image(
             self,
             keys_to_transfer: List[str],
