@@ -232,7 +232,7 @@ Features:
 
 Current limitations:
 
-1. *Tissue Purifier* works only with 2D tissue slices. No 3D support at the moment.
+1. *TissueMosaic* works only with 2D tissue slices. No 3D support at the moment.
 
 Future Improvements
 -------------------
