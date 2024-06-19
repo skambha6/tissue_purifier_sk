@@ -18,3 +18,4 @@ submit/main.py
 **/__pycache__
 **/.sh
 **/.ckpt
+**/.neptune/*
