@@ -1,4 +1,4 @@
-Tissue Purifier: A python library for the analysis of biological tissues
+TissueMosaic: A python library for the analysis of biological tissues
 ========================================================================
 
 .. image:: https://github.com/broadinstitute/tissue_purifier/blob/master/docs/source/_static/kandisky_slideseq_strip.jpeg
@@ -18,7 +18,7 @@ Description
 ..
    BELOW HERE YOU CAN COPY THE CONTENT OF getting_started.rst FROM THE DOCUMENTATION
 
-*Tissue Purifier* is Python library for the analysis of biological tissue and
+*TissueMosaic* is Python library for the analysis of biological tissue and
 cellular micro-environments based on self supervised learning.
 It is built on `PyTorch <https://pytorch.org/>`_,
 `PytorchLightning <https://www.pytorchlightning.ai/>`_,
@@ -227,30 +227,26 @@ Features:
 1. We have implemented multiple ssl strategies (such as convolutional Vae, Dino, BarlowTwin, SimClr)
    based on recent advances in image-based Machine Learning. 
 
-2. Tissue Purifier can be used to analyze any type of localized quantitative measurement for example spatial proteomics
+2. TissueMosaic can be used to analyze any type of localized quantitative measurement for example spatial proteomics
    (not only mRNA count data).
 
 Current limitations:
 
 1. *Tissue Purifier* works only with 2D tissue slices. No 3D support at the moment.
 
-2. *Tissue Purifier* assumes a hard cell-type assignment.
-
 Future Improvements
 -------------------
 We hope to soon support:
 
-1. probabilistic cell-type assignment
+1. pairing with histopathology (i.e. dense-image)
 
-2. pairing with histopathology (i.e. dense-image)
-
-3. Extension to handle 3D images
+2. Extension to handle 3D images
 
 Contributing
 ------------
-We aspire to make *Tissue Purifier* an easy-to-use and useful software package for the bioinformatics community.
-While we test and improve *Tissue Purifier* together with our research collaborators, your feedback is invaluable to us
-and allow us to steer *Tissue Purifier* in the direction that you find most useful in your research.
+We aspire to make *TissueMosaic* an easy-to-use and useful software package for the bioinformatics community.
+While we test and improve *TissueMosaic* together with our research collaborators, your feedback is invaluable to us
+and allow us to steer *TissueMosaic* in the direction that you find most useful in your research.
 If you have an interesting idea or suggestion, please do not hesitate to reach out to us.
 
 If you encounter a bug, please file a detailed github `issue <https://github.com/broadinstitute/tissue_purifier/issues>`_
@@ -258,10 +254,10 @@ and we will get back to you as soon as possible.
 
 Citation
 --------
-This software package was developed by *Luca D'Alessio* and *Fedor Grab*.
+This software package was developed by *Luca D'Alessio*, *Sandeep Kambhampati*, and *Fedor Grab*.
 
 ..
-  If you use TissuePurifier please consider citing:
+  If you use TissueMosaic please consider citing:
 
   ::
     @article{YourName,
