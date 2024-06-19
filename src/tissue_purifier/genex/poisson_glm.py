@@ -276,7 +276,6 @@ class GeneRegression:
             end_time = time.time()
             # print(str(end_time-start_time) + ' seconds elapsed per gene')
             
-                
         # output median alpha if regularization sweep was run
         if regularization_sweep:
             print("median alpha: " + str(np.median(list(self._alpha_dict.values()))))

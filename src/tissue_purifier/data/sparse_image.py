@@ -94,7 +94,7 @@ class SparseImage:
         # Check all vectors are 1D and of the same length
         x_raw = torch.from_numpy(self.x_raw).float()
         y_raw = torch.from_numpy(self.y_raw).float()
-        cat_raw = self.cat_raw
+        cat_raw = self.cat_raw ## cat raw represents original dataframe of cell type proportions
 
 
         assert x_raw.shape[0] == y_raw.shape[0] == cat_raw.shape[0] and len(x_raw.shape) == 1, \
@@ -105,8 +105,9 @@ class SparseImage:
         assert set(cat_raw.columns).issubset(set(self._categories_to_codes.keys())), \
             "Error. Some categories are NOT present in the categories_to_codes dictionary"
 
-        codes = torch.tensor([cat_raw[cat] for cat in cat_raw]).long()
-        codes_vals = torch.tensor(cat_raw.to_numpy())
+        ## convert cell type proportions dataframe to tensor 'codes_vals'
+        codes = torch.tensor([cat_raw[cat] for cat in cat_raw]).long() 
+        codes_vals = torch.tensor(cat_raw.to_numpy()) 
         
         # Use GPU if available
         if torch.cuda.is_available():
@@ -139,7 +140,7 @@ class SparseImage:
         ix = torch.round(x_pixel).long()
         iy = torch.round(y_pixel).long()
 
-        # Create a sparse array with 1 in the correct channel and x,y location.
+        # Create a sparse array with cell type proportion in the correct channel and x,y location.
         # The coalesce make sure that if in case of a collision the values are summed.
         dense_shape = (
             n_codes + 1,
@@ -151,7 +152,7 @@ class SparseImage:
         codes = torch.arange(start=0,end=n_codes+1).repeat(ix.shape[0])
         codes_1d = torch.flatten(codes)
 
-        # Remove any nan (todo: check why these exist)
+        # Remove any nan (todo: check why nan exists in the first place)
         codes_vals = torch.flatten(torch.nan_to_num(codes_vals)) 
         
         # Remove 0 values as don't need to store
@@ -636,7 +637,7 @@ class SparseImage:
 
         return rgb_img, fig
     
-    ## TODO: deprecate this function as unused
+    ## TODO: deprecate this function
     def to_rgb_image_property(self,
                image_property_key: str = None,
                spot_size: float = 1.0,
@@ -782,7 +783,7 @@ class SparseImage:
         # get raw data (cell type identities)
         codes_vals = torch.tensor(self.cat_raw.to_numpy()).cpu()
 
-        # convert probabilistic assignment to one hot for computing ncv
+        # convert probabilistic assignment to one hot encoded assignment for computing ncv
         cell_types_one_hot = numpy.zeros_like(codes_vals)
         max_assignment = numpy.argmax(codes_vals, axis = 1)
  
@@ -1025,8 +1026,8 @@ class SparseImage:
             patch_ncvs = []
             
             for crop in all_crops:
-                ## get cell types in the patch
                 
+                ## get cell types in the patch
                 cells = crop.indices().detach().clone()[[0]]
                 ct_counts = []
 
@@ -1282,7 +1283,6 @@ class SparseImage:
 
         self.write_to_spot_dictionary(key = 'train_test_fold_4', values=train_test_fold_4, overwrite=True)
 
-    ## TODO: debug
     def patch_train_test_split(self, feature_xywh: str=None,
                                 res: int=0.4, 
                                 stratify: bool=True,
@@ -1341,7 +1341,6 @@ class SparseImage:
         if return_patches:
             return self._patch_properties_dict['train_test_split_id'], self._patch_properties_dict['train_test_split_id_patch_xywh']
         
-    ## TODO: debug
     def patch_train_test_val_split(self, feature_xywh: str=None,
                                 res: int=0.4, 
                                 stratify: bool=True,

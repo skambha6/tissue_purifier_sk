@@ -67,8 +67,6 @@ def filter_anndata(anndata: AnnData,
             pp.highly_variable_genes(anndata_log, n_top_genes=fg_bc_high_var)
             anndata = anndata[:,anndata_log.var['highly_variable']]
         
-        print(anndata)
-        
         return anndata
 
 
@@ -160,15 +158,13 @@ def make_gene_dataset_from_anndata(
 
     cell_types = list(anndata.obs[cell_type_key].values)
     cell_type_ids_n, mapping_dict = _make_labels(cell_types)
-    ## TODO: check glm works with long counts
+
     counts_ng = torch.tensor(anndata.X.toarray()).long()
     covariates_nl_raw = torch.tensor(anndata.obsm[covariate_key])
     
 
-    ## TODO: check this
     ## use mapping_dict.keys() so that order of cell types matches
     cell_type_props = torch.tensor(anndata.obsm[cell_type_prop_key].to_numpy()).float()
-
 
     if not torch.all(torch.isfinite(covariates_nl_raw)):
         mask = torch.isfinite(covariates_nl_raw)
@@ -180,8 +176,7 @@ def make_gene_dataset_from_anndata(
 
     assert counts_ng.shape[0] == covariates_nl_raw.shape[0] == cell_type_ids_n.shape[0]
 
-    ## do this based on shape of cell_type_proportions instead
-    #k_cell_types = cell_type_ids_n.max().item() + 1  # +1 b/c ids start from zero
+    ## get number of cell types based on shape of cell_type_proportions
     k_cell_types = cell_type_props.shape[1]
 
     if apply_pca:
@@ -191,7 +186,7 @@ def make_gene_dataset_from_anndata(
         std, mean = torch.std_mean(covariates_nl_raw, dim=-2, unbiased=True, keepdim=True)
         mask = (std == 0.0)
         std[mask] = 1.0
-        new_covariate = (covariates_nl_raw - mdean) / std
+        new_covariate = (covariates_nl_raw - mean) / std
     elif preprocess_strategy == 'center':
         mean = torch.mean(covariates_nl_raw, dim=-2, keepdim=True)
         new_covariate = covariates_nl_raw - mean
@@ -315,10 +310,11 @@ def train_test_val_split(
             yield trains, tests, vals
             
             
-def train_test_split(
+def train_test_val_split(
         data: Union[List[torch.Tensor], List[numpy.ndarray], GeneDataset],
-        train_size: float = 0.8,
+        train_size: float = 0.7,
         test_size: float = 0.2,
+        val_size: float = 0.1,
         n_splits: int = 1,
         random_state: int = None,
         stratify: bool = True,

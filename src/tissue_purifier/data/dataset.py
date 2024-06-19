@@ -37,20 +37,21 @@ class CropperTensor(torch.nn.Module):
             stride: Used only when :attr:'strategy' is 'tiling'.
                 Displacement among consecutive sliding window. This allow to control the overlap between crops.
             fraction_patch_overlap: Used only when :attr:'strategy' is 'tiling'.
-                Used to compute stride.
+                Used to compute stride. Stride parameter supersedes fraction_patch_overlap parameter if both are passed.
             n_crops: int, the size of crops to generate from a single image.
             random_order: Used only when :attr:'strategy' is 'tiling'.
                 If true the crops are shuffled before being returned.
             criterium_fn: Callable which returns true if it is a valid crop, return False otherwise
         """
         
-        ## TODO: check if issue when stride and fraction_patch_overlap are both passed
             
         super().__init__()
         self.crop_size_ = crop_size
         self.strategy_ = strategy
         self.fraction_patch_overlap_ = fraction_patch_overlap
-        self.stride_ = stride
+        ## if neither fraction_patch_overlap or stride are passed, defaults to fraction_patch_overlap = 0.5. 
+        ## If both stride and fraction_patch_overlap are passed, defaults to stride
+        self.stride_ = stride 
         self.n_crops_ = n_crops
         self.random_order_ = random_order
         self.criterium_fn_ = criterium_fn
@@ -124,7 +125,6 @@ class CropperDenseTensor(CropperTensor):
         assert isinstance(min_threshold_fraction, float)
         self.min_threshold_fraction = min_threshold_fraction 
 
-        ## double check this method
         def criterium_fn(potential_crops):
             masks = potential_crops.sum(dim=-3, keepdim=False) > min_threshold_value
             number_of_true = masks.flatten(start_dim=-2).sum(dim=-1)
@@ -279,20 +279,11 @@ class CropperSparseTensor(CropperTensor):
         for n in range(mask.shape[0]):
             mask_n = mask[n]  # shape (n_element)
             codes_n = codes[mask_n]
-            # print("x_pixel:")
-            # print(x_pixel)
             x_pixel_n = x_pixel[mask_n] - x_patch[n, 0]
-            # print("x_pixel_n:")
-            # print(x_pixel_n)
             y_pixel_n = y_pixel[mask_n] - y_patch[n, 0]
             values_n = values[mask_n]
 
-            # print(ch)
-            # ## assert these are ints and if not cast to ints
-            # print("w_patch:")
-            # print(w_patch[n,0])
-            # print("h_patch:")
-            # print(h_patch[n,0])
+            ## assert these are ints and if not cast to ints
 
             crops.append(
                 torch.sparse_coo_tensor(
@@ -327,11 +318,6 @@ class CropperSparseTensor(CropperTensor):
 
         codes, x_pixel, y_pixel = sparse_tensor.indices()  # each has shape (n_elements)
         values = sparse_tensor.values()
-
-        # print("codes shape:")
-        # print(codes.shape)
-        # print("x pixel shape:")
-        # print(x_pixel.shape)
         
         ch, w_img, h_img = sparse_tensor.size()
 
