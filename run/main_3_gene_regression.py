@@ -250,15 +250,14 @@ def parse_args(argv: List[str]) -> dict:
     parser.add_argument("--filter", type=float, required=False,
                         help="If provided, set outlier values in feature_key beyond filter threshold to 0")
     
-    parser.add_argument("--OMP_NUM_THREADS", type=str, required=False, default="4",
+    parser.add_argument("--OMP_NUM_THREADS", type=str, required=False, default="1",
                     help="Set number of OMP threads for Poisson regression")
     
-    parser.add_argument("--MKL_NUM_THREADS", type=str, required=False, default="4",
+    parser.add_argument("--MKL_NUM_THREADS", type=str, required=False, default="1",
                 help="Set number of MKL threads for Poisson regression")
     
     ## TODO: add the rest of the filtering criteria as user parameters
     ## TODO: save arguments / config file in out directory 
-    
     
     # Add help at the very end
     parser = argparse.ArgumentParser(parents=[parser], add_help=True)
@@ -377,6 +376,8 @@ if __name__ == '__main__':
             list_of_folds_cell_type_ids = []
 
             ## TODO: make num kfold / range user parameter
+            ## TODO: add in number of cores as a user parameter / don't parallelize by default
+
             ## parallelize over kfolds
 
             with Pool(6) as p:
