@@ -55,8 +55,6 @@ def parse_args(argv: List[str]) -> dict:
     parser.add_argument("--anndata_out", type=str, required=True,
                         help="path to the directory where anndata.h5ad files which will be saved to disk. \
                              If it is equal to anndata_in, a new file will be written in that directory.")
-    
-    ## add user defined suffix to file name
 
     # stuff related to ssl features
     parser.add_argument("--ckpt_in", type=str, required=True,
@@ -83,7 +81,7 @@ def parse_args(argv: List[str]) -> dict:
                         choices=["barlow", "dino", "vae", "simclr"],
                         help="the Self Supervised Learning framework corresponding to the checkpoint. In most cases \
                         this parameter is not required and the ssl_model will be inferred from the checkpoint.")
-    parser.add_argument("--suffix", type=str, default=None,
+    parser.add_argument("--suffix", type=str, default=None, ## add user defined suffix to file name
                     help="If specified, the suffix is attended to the end of each filename output is written to.")
 
     # if specified ncv_r is computed
