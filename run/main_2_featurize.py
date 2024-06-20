@@ -175,6 +175,7 @@ if __name__ == '__main__':
             fraction_patch_overlap=config_dict_["frac_overlap"], 
             overwrite=True
         )
+        ## transfer patch features to spot level (this is an interpolation from all patches that overlap a given spot)
         sparse_img.transfer_patch_to_spot(keys_to_transfer=[config_dict_["feature_key"]],
                                           overwrite=True,
                                           verbose=False,
@@ -190,22 +191,22 @@ if __name__ == '__main__':
                                         return_patches=True)
         
         print("Computing spot features")
+        ## the true spot features are computed by drawing a patch around each spot. they are stored in the anndata as '_spot_features'
         sparse_img.compute_spot_features(feature_name=config_dict_["feature_key"] + "_spot_features",
             datamodule=dm,
             model=model,
             batch_size=config_dict_["spot_feature_batch_size"])
             
         print("Computing spot train test split")
-        ## do spot train test split
+        ## compute spatially partitioned spot train test split
         sparse_img.spot_train_test_split(patch_size=dm.global_size)
         
         # remove the intermediate results in the patch_dict and image_dict and save the new anndata to file
         sparse_img.clear_dicts(patch_dict=True, image_dict=True)
         new_anndata = sparse_img.to_anndata(export_full_state=True)
         
-        ## TODO: user optional suffix
         if config_dict_["suffix"] is not None:
-            out_file_name = fname[:-5] + "suffix.h5ad" 
+            out_file_name = fname[:-5] + '_' + config_dict_["suffix"] + ".h5ad" 
         else:
             out_file_name = fname
         

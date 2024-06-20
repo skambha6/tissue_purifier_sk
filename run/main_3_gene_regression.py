@@ -33,41 +33,10 @@ import time
 import tissue_purifier as tp
 
 from tissue_purifier.genex.gene_utils import *
+from tissue_purifier.utils.anndata_util import *
 from tissue_purifier.genex.poisson_glm import *
 
 from multiprocessing import Pool
-    
-def merge_anndatas_inner_join(anndata_list):
-    """
-    Merge a list of anndata objects using an inner join operation.
-
-    Args:
-        anndata_list (list): List of anndata objects to be merged.
-
-    Returns:
-        anndata.AnnData: The merged anndata object.
-    """
-    # Check if the anndata_list is not empty
-    if not anndata_list:
-        raise ValueError("Input anndata_list is empty.")
-
-    # Determine the common feature names across all anndata objects
-    common_feature_names = anndata_list[0].var_names
-    for ad in anndata_list[1:]:
-        common_feature_names = common_feature_names.intersection(ad.var_names)
-
-    # Filter observations for each anndata object using the common feature names
-    filtered_anndata_list = []
-    for ad in anndata_list:
-        ad_filtered = ad[:, common_feature_names]
-        filtered_anndata_list.append(ad_filtered)
-
-    # Concatenate the list of filtered anndata objects along axis 0 (rows)
-    merged_anndata = anndata.concat(filtered_anndata_list, axis=0)
-    
-    ## assert statement to see if filtered features is large enough
-
-    return merged_anndata
 
 ## stratified by majority cell type label
 def regress(train_dataset, val_dataset, test_dataset, config_dict_, ctype, fold_prefix):
@@ -81,11 +50,10 @@ def regress(train_dataset, val_dataset, test_dataset, config_dict_, ctype, fold_
 
     ## alpha = 0 is unpenalized GLM
     ## In this case, the design matrix X must have full column rank (no collinearities).
-    ## but our cell_type_props has collinearity
+    ## but our X (cell type proportions) has collinearity so we set alpha = 1.0 as default for baseline model
 
     ## TODO: set max_iter as user parameter
-    ## TODO: confirm convergence with default max_iter?
-    
+    ## TODO: provide metric to confirm convergence with default max_iter?
     print("Training baseline model")
     start_time = time.time()
     gr_baseline.train(
@@ -280,7 +248,7 @@ def parse_args(argv: List[str]) -> dict:
                         help="Cell types to run regression on; defaults to all cell types")
     
     parser.add_argument("--filter", type=float, required=False,
-                        help="If provided, set outlier values beyond filter threshold to 0")
+                        help="If provided, set outlier values in feature_key beyond filter threshold to 0")
     
     parser.add_argument("--OMP_NUM_THREADS", type=str, required=False, default="4",
                     help="Set number of OMP threads for Poisson regression")
@@ -288,10 +256,8 @@ def parse_args(argv: List[str]) -> dict:
     parser.add_argument("--MKL_NUM_THREADS", type=str, required=False, default="4",
                 help="Set number of MKL threads for Poisson regression")
     
-    ## TODO: add the rest of the filtering criteria
-    
-    ##TODO: save arguments / config file in out directory 
-    
+    ## TODO: add the rest of the filtering criteria as user parameters
+    ## TODO: save arguments / config file in out directory 
     
     
     # Add help at the very end
@@ -305,7 +271,6 @@ def parse_args(argv: List[str]) -> dict:
 
 if __name__ == '__main__':
     config_dict_ = parse_args(sys.argv[1:])
-    
 
     annotated_anndata_folder = config_dict_["anndata_in"]
     
@@ -333,7 +298,6 @@ if __name__ == '__main__':
         
     merged_anndata = merge_anndatas_inner_join(adata_list)
     
-    ## TODO: check this if statement works as expected
     ## add majority cell type labels if not already present
     if config_dict_["cell_type_key"] not in list(merged_anndata.obs.keys()):
         merged_anndata.obs[config_dict_["cell_type_key"]] = pd.DataFrame(merged_anndata.obsm[config_dict_["cell_type_proportions_key"]].idxmax(axis=1))
@@ -358,23 +322,20 @@ if __name__ == '__main__':
         
 
         ## flag in cell type prop key
-
         filtered_anndata = filter_anndata(merged_anndata_ctype, cell_type_key = config_dict_["cell_type_key"], fg_bc_high_var=config_dict_["fg_bc_high_var"], fc_bc_min_umi=config_dict_["fc_bc_min_umi"], fg_bc_min_pct_cells_by_counts=config_dict_["fg_bc_min_pct_cells_by_counts"])
 
         # filter spatial covariates 
         if config_dict_["filter"] is not None:
             threshold = config_dict_["filter"]   
           
-            filtered_anndata.obsm[config_dict_["feature_key"]][filtered_anndata.obsm[config_dict_["feature_key"]] > threshold] = 0
-                                                               
+            filtered_anndata.obsm[config_dict_["feature_key"]][filtered_anndata.obsm[config_dict_["feature_key"]] > threshold] = 0                                                           
 
 
         ## Split data into train/test sets based on spatial split assigned in main_2_featurize.py
-        ## If running regularization sweep, train_test_val_split_id must be present in obs
+        ## If running regularization sweep, 'train_test_val_split_id' must be present in obs
 
         if config_dict_["regularization_sweep"]:
-            
-            ## TODO: test this assert statement                                                   
+                                                             
             assert "train_test_val_split_id" in filtered_anndata.obs.keys(), "Train_test_val_split_id must be present in obs to run regularization sweep"
                                                                
             train_anndata = filtered_anndata[filtered_anndata.obs['train_test_val_split_id'] == 0]
@@ -437,7 +398,7 @@ if __name__ == '__main__':
             cell_type_ids = torch.cat(list_of_folds_cell_type_ids, dim=0)
         
     
-        ## compute metrics:
+        ## compute evaluation metrics:
         df_d_sq_gk_ssl, df_rel_q_gk_ssl = GeneRegression.compute_eval_metrics(pred_counts_ng=pred_counts_ng, 
                                                         counts_ng=counts_ng,
                                                         cell_type_ids = cell_type_ids,
@@ -451,32 +412,32 @@ if __name__ == '__main__':
                                                         gene_names = np.array(filtered_anndata.var.index),
                                                         pred_counts_ng_baseline = pred_counts_ng_baseline) 
 
-        #### Write baseline metrics ###
+        #### Write baseline metrics to out files ###
 
-        ## write d_sq_g to file
+        ## write d_sq_gk to file
         baseline_d_sq_gk_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_df_d_sq_gk" + "_baseline.pickle"
         baseline_d_sq_gk_outfile = os.path.join(config_dict_["out_dir"], baseline_d_sq_gk_outfile_name)
 
         with open(baseline_d_sq_gk_outfile, 'wb') as file:
             pickle.dump(df_d_sq_gk_baseline, file)
 
-        ## write q_z_k to file
+        ## write rel_q_gk to file
         baseline_rel_q_gk_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_df_rel_q_gk" + "_baseline.pickle"
         baseline_rel_q_gk_outfile = os.path.join(config_dict_["out_dir"], baseline_rel_q_gk_outfile_name)
 
         with open(baseline_rel_q_gk_outfile, 'wb') as file:
             pickle.dump(df_rel_q_gk_baseline, file)
 
-        #### Write metrics ####
+        #### Write spatial metrics to out files####
 
-        ## write d_sq_g to file
+        ## write rel_q_gk to file
         d_sq_gk_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_df_d_sq_gk" + "_ssl.pickle"
         d_sq_gk_outfile = os.path.join(config_dict_["out_dir"], d_sq_gk_outfile_name)
 
         with open(d_sq_gk_outfile, 'wb') as file:
             pickle.dump(df_d_sq_gk_ssl, file)
 
-        ## write q_z_kg to file
+        ## write rel_q_gk to file
         rel_q_gk_outfile_name = config_dict_["out_prefix"] + "_" + ctype + "_df_rel_q_gk" + "_ssl.pickle"
         rel_q_gk_outfile = os.path.join(config_dict_["out_dir"], rel_q_gk_outfile_name)
 
