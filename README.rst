@@ -118,7 +118,7 @@ If you run the following command from your terminal it should report True:
     python -c 'import torch; print(torch.cuda.is_available())'
 
 
-Finally install *Tissue Purifier* and its dependencies:
+Finally install *Tissue Mosaic* and its dependencies:
 
 .. code-block::
 
