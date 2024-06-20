@@ -191,25 +191,23 @@ Finally, evaluate the features based on their ability to predict the gene expres
 
 .. code-block::
 
-    set environment threads
+    #set environment threads
     export OMP_NUM_THREADS=1
     export MKL_NUM_THREADS=1
     export OPENBLAS_NUM_THREADS=1
     export NUMEXPR_NUM_THREADS=1
 
-python main_3_gene_regression.py --anndata_in /home/skambha6/chenlab/tissue_purifier/tp_output/testis/testis_anndata_wildtype_model_featurized/  --out_dir /home/skambha6/chenlab/tissue_purifier/tp_output/testis/gr_output/vae --out_prefix vae_filter_2.0_ctype --feature_key vae_spot_features --alpha_regularization_strength 0.01 --filter 2.0 --fc_bc_min_umi=500  --fg_bc_min_pct_cells_by_counts 10 --cell_types ES 
-
-  mkdir gr_results  
-  python main_3_gene_regression.py
-      --anndata_in testis_anndata_featurized
-      --out_dir gr_results
-      --out_prefix dino_ctype
-      --feature_key dino_spot_features
-      --alpha_regularization_strength 0.01
-      --filter 2.0
-      --fc_bc_min_umi=500
-      --fg_bc_min_pct_cells_by_counts 10
-      --cell_types ES
+    mkdir gr_results  
+    python main_3_gene_regression.py
+        --anndata_in testis_anndata_featurized
+        --out_dir gr_results
+        --out_prefix dino_ctype
+        --feature_key dino_spot_features
+        --alpha_regularization_strength 0.01
+        --filter 2.0
+        --fc_bc_min_umi=500
+        --fg_bc_min_pct_cells_by_counts 10
+        --cell_types ES
 
 This will write the gene regression evaluation metrics to the specified out directory.
 
