@@ -21,8 +21,7 @@ Description
 *TissueMosaic* is Python library for the analysis of biological tissue and
 cellular micro-environments based on self supervised learning.
 It is built on `PyTorch <https://pytorch.org/>`_,
-`PytorchLightning <https://www.pytorchlightning.ai/>`_,
-`Pyro <https://pyro.ai/>`_ and
+`PytorchLightning <https://www.pytorchlightning.ai/>`_ and,
 `Anndata <https://anndata.readthedocs.io/en/latest/>`_.
 
 Spatially resolved transcriptomic technologies (such as 
@@ -118,14 +117,6 @@ If you run the following command from your terminal it should report True:
 
     python -c 'import torch; print(torch.cuda.is_available())'
 
-Next install the most recent version of Pyro (not yet available using pip):
-
-.. code-block::
-
-    git clone https://github.com/pyro-ppl/pyro.git
-    cd pyro
-    pip install .
-
 
 Finally install *Tissue Purifier* and its dependencies:
 
@@ -187,11 +178,12 @@ Next extract the features (this will take only few minutes to run):
 
 .. code-block::
 
+    mkdir testis_anndata_featurized
     python main_2_featurize.py
-        --anndata_in adata_0_raw.h5ad
-        --anndata_out adata_0_annotated.h5ad
-        --ckpt_in ckpt_bar.ckpt
-        --feature_key barlow
+        --anndata_in testis_anndata
+        --anndata_out testis_anndata_featurized
+        --ckpt_in dino_testis.pt
+        --feature_key dino
         --n_patches 500
         --ncv_k 10 25 100
 
@@ -199,7 +191,26 @@ Finally, evaluate the features based on their ability to predict the gene expres
 
 .. code-block::
 
-    python main_3_genex.py --anndata_in XXX --l1 0.1 --n_pca 9 --XXX # DOUBLE CHECK
+    set environment threads
+    export OMP_NUM_THREADS=1
+    export MKL_NUM_THREADS=1
+    export OPENBLAS_NUM_THREADS=1
+    export NUMEXPR_NUM_THREADS=1
+
+python main_3_gene_regression.py --anndata_in /home/skambha6/chenlab/tissue_purifier/tp_output/testis/testis_anndata_wildtype_model_featurized/  --out_dir /home/skambha6/chenlab/tissue_purifier/tp_output/testis/gr_output/vae --out_prefix vae_filter_2.0_ctype --feature_key vae_spot_features --alpha_regularization_strength 0.01 --filter 2.0 --fc_bc_min_umi=500  --fg_bc_min_pct_cells_by_counts 10 --cell_types ES 
+
+    python main_3_gene_regression.py
+      --anndata_in testis_anndata_featurized
+      --out_dir ./
+      --out_prefix dino_ctype
+      --feature_key dino_spot_features
+      --alpha_regularization_strength 0.01
+      --filter 2.0
+      --fc_bc_min_umi=500
+      --fg_bc_min_pct_cells_by_counts 10
+      --cell_types ES
+
+This will write the gene regression evaluation metrics to the specified out directory.
 
 It might make sense to train your model remotely on google cloud (or another cloud provider)
 using `Terra <https://terra.bio>`_ or `cromwell <https://cromwell.readthedocs.io/en/stable/>`_.
