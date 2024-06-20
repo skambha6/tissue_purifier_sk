@@ -312,8 +312,8 @@ def train_test_val_split(
             
 def train_test_val_split(
         data: Union[List[torch.Tensor], List[numpy.ndarray], GeneDataset],
-        train_size: float = 0.7,
-        test_size: float = 0.2,
+        train_size: float = 0.8,
+        test_size: float = 0.1,
         val_size: float = 0.1,
         n_splits: int = 1,
         random_state: int = None,
@@ -378,19 +378,30 @@ def train_test_val_split(
     train_size_norm0 = train_size / norm0
     test_and_val_size_norm0 = (test_size + val_size) / norm0
 
+    assert train_size_norm0 + test_and_val_size_norm0 == 1.0
+
     norm1 = test_size + val_size
     test_size_norm1 = test_size / norm1
     val_size_norm1 = val_size / norm1
+
 
     if stratify:
         sss0 = StratifiedShuffleSplit(n_splits=n_splits,
                                       train_size=train_size_norm0,
                                       test_size=test_and_val_size_norm0,
                                       random_state=random_state)
+        sss1 = StratifiedShuffleSplit(n_splits=n_splits,
+                                      train_size=val_size_norm1,
+                                      test_size=test_size_norm1,
+                                      random_state=random_state)
     else:
         sss0 = ShuffleSplit(n_splits=n_splits,
                             train_size=train_size_norm0,
                             test_size=test_and_val_size_norm0,
+                            random_state=random_state)
+        sss1 = ShuffleSplit(n_splits=n_splits,
+                            train_size=val_size_norm1,
+                            test_size=test_size_norm1,
                             random_state=random_state)
 
     # Part common to both stratified and not stratified

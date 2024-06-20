@@ -19,3 +19,4 @@ submit/main.py
 **/.sh
 **/.ckpt
 **/.neptune/*
+**/notebooks/*_temp.ipynb

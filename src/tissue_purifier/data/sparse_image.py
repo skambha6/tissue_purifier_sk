@@ -1966,8 +1966,8 @@ class SparseImage:
         assert x_raw.shape[0] == y_raw.shape[0] == cat_raw.shape[0] and len(x_raw.shape) == 1
         
         ## convert to float
-        x_raw = x_raw.astype(np.float)
-        y_raw = y_raw.astype(np.float)
+        x_raw = x_raw.astype(float)
+        y_raw = y_raw.astype(float)
 
         spot_dictionary = {
             "x_key": x_raw,
