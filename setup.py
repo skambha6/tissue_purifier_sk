@@ -26,8 +26,8 @@ setup(
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
     url="https://github.com/broadinstitute/tissue_purifier",
-    author="Luca Dalessio",
-    author_email="dalessioluca@gmail.com",
+    author="Luca Dalessio, Sandeep Kambhampati",
+    author_email="skambham@broadinstitute.org",
     # install_requires=[
     #     "anndata>=0.8.0",
     #     "leidenalg>=0.8.3",
