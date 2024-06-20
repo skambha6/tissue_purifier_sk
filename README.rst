@@ -176,12 +176,12 @@ Next, navigate to the "tissue_purifier/run" directory and train the model (this 
 .. code-block::
 
     cd tissue_purifier/run
-    python main_1_train_ssl.py --config config_barlow_ssl.yaml --data_folder testis_anndata
+    python main_1_train_ssl.py --config config_dino_ssl.yaml --data_folder testis_anndata --ckpt_out dino_testis.pt
 
     # or alternatively
-    # python main_1_train_ssl.py --config config_dino_ssl.yaml --data_folder testis_anndata --gpus 2
-    # python main_1_train_ssl.py --config config_simclr_ssl.yaml --data_folder testis_anndata --gpus 2
-    # python main_1_train_ssl.py --config config_vae_ssl.yaml --data_folder testis_anndata --gpus 2
+    # python main_1_train_ssl.py --config config_barlow_ssl.yaml --data_folder testis_anndata --ckpt_out barlow_testis.pt
+    # python main_1_train_ssl.py --config config_simclr_ssl.yaml --data_folder testis_anndata --ckpt_out simclr_testis.pt
+    # python main_1_train_ssl.py --config config_vae_ssl.yaml --data_folder testis_anndata --ckpt_out vae_testis.pt
 
 Next extract the features (this will take only few minutes to run):
 
@@ -190,7 +190,7 @@ Next extract the features (this will take only few minutes to run):
     python main_2_featurize.py
         --anndata_in adata_0_raw.h5ad
         --anndata_out adata_0_annotated.h5ad
-        --ckpt_in ckpt_barlow.ckpt
+        --ckpt_in ckpt_bar.ckpt
         --feature_key barlow
         --n_patches 500
         --ncv_k 10 25 100
@@ -210,10 +210,10 @@ you can submit a run as follow:
 .. code-block::
 
     cd tissue_purifier/run
-    ./submit_neptune_ml.sh neptune_ml.wdl --py main_1_train_ssl.py --wdl WDL_parameters.json --ml config_barlow_ssl.yaml
+    ./submit_neptune_ml.sh neptune_ml.wdl --py main_1_train_ssl.py --wdl WDL_parameters.json --ml config_dino_ssl.yaml
 
     # or alternatively
-    # ./submit_neptune_ml.sh neptune_ml.wdl --py main_1_train_ssl.py --wdl WDL_parameters.json --ml config_dino_ssl.yaml
+    # ./submit_neptune_ml.sh neptune_ml.wdl --py main_1_train_ssl.py --wdl WDL_parameters.json --ml config_barlow_ssl.yaml
     # ./submit_neptune_ml.sh neptune_ml.wdl --py main_1_train_ssl.py --wdl WDL_parameters.json --ml config_simclr_ssl.yaml
     # ./submit_neptune_ml.sh neptune_ml.wdl --py main_1_train_ssl.py --wdl WDL_parameters.json --ml config_vae_ssl.yaml
 
