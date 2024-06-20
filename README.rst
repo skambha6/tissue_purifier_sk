@@ -199,9 +199,10 @@ Finally, evaluate the features based on their ability to predict the gene expres
 
 python main_3_gene_regression.py --anndata_in /home/skambha6/chenlab/tissue_purifier/tp_output/testis/testis_anndata_wildtype_model_featurized/  --out_dir /home/skambha6/chenlab/tissue_purifier/tp_output/testis/gr_output/vae --out_prefix vae_filter_2.0_ctype --feature_key vae_spot_features --alpha_regularization_strength 0.01 --filter 2.0 --fc_bc_min_umi=500  --fg_bc_min_pct_cells_by_counts 10 --cell_types ES 
 
-    python main_3_gene_regression.py
+  mkdir gr_results  
+  python main_3_gene_regression.py
       --anndata_in testis_anndata_featurized
-      --out_dir ./
+      --out_dir gr_results
       --out_prefix dino_ctype
       --feature_key dino_spot_features
       --alpha_regularization_strength 0.01
