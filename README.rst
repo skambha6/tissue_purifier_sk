@@ -186,6 +186,7 @@ Next extract the features (this will take only few minutes to run):
         --feature_key dino
         --n_patches 500
         --ncv_k 10 25 100
+        --suffix featurized
 
 Finally, evaluate the features based on their ability to predict the gene expression profile.
 
