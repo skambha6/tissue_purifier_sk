@@ -65,6 +65,10 @@ def parse_args(argv: List[str]) -> dict:
                         help="Use gpu or not to compute the features.")
     parser.add_argument("--n_patches", type=int, default=1000,
                         help="Number of patches used to tile the sparse image")
+    parser.add_argument("--patch_strategy", type=str, default='random',
+                        help="Strategy to tile the sparse image into patches, either 'random' or 'tiling")
+    parser.add_argument("--remove_patch_overlap", type=bool, default=False,
+                        help="Whether to remove overlapping patches when computing patch features, used when patch strategy is 'random'")
     parser.add_argument("--strategy_patch_to_image", type=str, choices=['average', 'closest'],
                         default='average', help="How to combine overlapping patches to create an image-level feature")
     parser.add_argument("--strategy_image_to_spot", type=str, choices=['closest', 'bilinear'],
@@ -73,6 +77,11 @@ def parse_args(argv: List[str]) -> dict:
                         default=0.0, help="How much overlap when tiling sparse image into patches to compute patch-level features")
     parser.add_argument("--spot_feature_batch_size", type=int, 
                         default=1024, help="Batch size for computing spot features")
+    parser.add_argument("--compute_spot_features", type=bool, default=True, 
+                        help="If true, features are also computed at the granularity of one patch per spot \
+                            Can use interpolated patch features in place of spot features if compute efficiency is needed.")
+    parser.add_argument("--patch_feature_batch_size", type=int, 
+                        default=64, help="Batch size for computing patch features")
     parser.add_argument("--patch_train_test_split", type=bool, default=False,
                         help="If true, run spatial train test split at patch level")
     parser.add_argument("--ncv_patch_cluster_res", type=float, 
@@ -93,7 +102,6 @@ def parse_args(argv: List[str]) -> dict:
     parser.add_argument("--ncv_k", type=int, nargs='*', default=None,
                         help="If specified the neighborhood composition vector with k neighbours is computed. \
                              If it is a list multiple ncv corresponding to all neighbours k will be computed.")
-
 
     # Add help at the very end
     parser = argparse.ArgumentParser(parents=[parser], add_help=True)
@@ -166,11 +174,13 @@ if __name__ == '__main__':
         # compute the ssl features
         sparse_img.compute_patch_features(
             feature_name=config_dict_["feature_key"],
-            strategy = 'tiling',
+            strategy = config_dict_["patch_strategy"],
             model=model,
             datamodule=dm,
-            batch_size=64,
-            fraction_patch_overlap=config_dict_["frac_overlap"], 
+            batch_size=config_dict_["patch_feature_batch_size"],
+            n_patches_max = config_dict_["n_patches"], ## used for strategy 'random'
+            fraction_patch_overlap=config_dict_["frac_overlap"], ## used for strategy 'tiling',
+            remove_overlap=config_dict_["remove_patch_overlap"], ## used for strategy 'random'
             overwrite=True
         )
         ## transfer patch features to spot level (this is an interpolation from all patches that overlap a given spot)
@@ -188,19 +198,20 @@ if __name__ == '__main__':
                                         write_to_spot_dictionary=True, 
                                         return_patches=True)
         
-        print("Computing spot features")
-        ## the true spot features are computed by drawing a patch around each spot. they are stored in the anndata as '_spot_features'
-        sparse_img.compute_spot_features(feature_name=config_dict_["feature_key"] + "_spot_features",
-            datamodule=dm,
-            model=model,
-            batch_size=config_dict_["spot_feature_batch_size"])
-            
-        print("Computing spot train test split")
-        ## compute spatially partitioned spot train test split
-        sparse_img.spot_train_test_split(patch_size=dm.global_size)
+        if config_dict_["compute_spot_features"]:
+            print("Computing spot features")
+            ## the true spot features are computed by drawing a patch around each spot. they are stored in the anndata as '_spot_features'
+            sparse_img.compute_spot_features(feature_name=config_dict_["feature_key"] + "_spot_features",
+                datamodule=dm,
+                model=model,
+                batch_size=config_dict_["spot_feature_batch_size"])
+                
+            print("Computing spot train test split")
+            ## compute spatially partitioned spot train test split
+            sparse_img.spot_train_test_split(patch_size=dm.global_size)
         
         # remove the intermediate results in the patch_dict and image_dict and save the new anndata to file
-        sparse_img.clear_dicts(patch_dict=True, image_dict=True)
+        # sparse_img.clear_dicts(patch_dict=True, image_dict=True)
         new_anndata = sparse_img.to_anndata(export_full_state=True)
         
         if config_dict_["suffix"] is not None:

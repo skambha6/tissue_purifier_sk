@@ -197,7 +197,7 @@ def parse_args(argv: List[str]) -> dict:
     parser = argparse.ArgumentParser(add_help=False, conflict_handler='resolve')
 
     parser.add_argument("--anndata_in", type=str, required=True,
-                        help="path to the directory containing the annotated anndata.h5ad")
+                        help="path to the directory containing the annotated anndatas OR single input anndata.h5ad")
     
     parser.add_argument("--out_dir", type=str, required=True,
                         help="Output directory name to save images/plots to.")
@@ -247,7 +247,7 @@ def parse_args(argv: List[str]) -> dict:
     parser.add_argument("--cell_types", type=str, nargs='*', required=False,
                         help="Cell types to run regression on; defaults to all cell types")
     
-    parser.add_argument("--filter", type=float, required=False,
+    parser.add_argument("--filter_feature", type=float, required=False,
                         help="If provided, set outlier values in feature_key beyond filter threshold to 0")
     
     parser.add_argument("--OMP_NUM_THREADS", type=str, required=False, default="1",
@@ -271,31 +271,30 @@ def parse_args(argv: List[str]) -> dict:
 if __name__ == '__main__':
     config_dict_ = parse_args(sys.argv[1:])
 
-    annotated_anndata_folder = config_dict_["anndata_in"]
-    
-    fname_list = []
-    for f in os.listdir(annotated_anndata_folder):
-        if f.endswith('.h5ad'):
-            fname_list.append(f)
-    print(fname_list)
-    
-    ## set num threads ; need to set in environment before running script
-    # os.environ["OMP_NUM_THREADS"] = config_dict_["OMP_NUM_THREADS"]
-    # os.environ["MKL_NUM_THREADS"] = config_dict_["MKL_NUM_THREADS"]
-    
-    ## read in all anndatas and create one big anndata out of them
-    adata_list = []
-
-    sample_id = 0
-    for fname in fname_list:
-        adata = read_h5ad(filename=os.path.join(annotated_anndata_folder, fname))
+    if config_dict_["anndata_in"].endswith('.h5ad'):
+        merged_anndata = read_h5ad(filename=config_dict_["anndata_in"])
+    else:
+        annotated_anndata_folder = config_dict_["anndata_in"]
         
-        adata.obs['sample_id'] = np.ones(adata.X.shape[0]) * sample_id
-        sample_id += 1
-
-        adata_list.append(adata)
+        fname_list = []
+        for f in os.listdir(annotated_anndata_folder):
+            if f.endswith('.h5ad'):
+                fname_list.append(f)
         
-    merged_anndata = merge_anndatas_inner_join(adata_list)
+        ## set num threads ; need to set in environment before running script
+        # os.environ["OMP_NUM_THREADS"] = config_dict_["OMP_NUM_THREADS"]
+        # os.environ["MKL_NUM_THREADS"] = config_dict_["MKL_NUM_THREADS"]
+        
+        ## read in all anndatas and create one big anndata out of them
+        adata_list = []
+
+        for i, fname in enumerate(fname_list):
+            adata = read_h5ad(filename=os.path.join(annotated_anndata_folder, fname))
+            
+            adata.obs['sample_id'] = i * np.ones(adata.X.shape[0])
+            adata_list.append(adata)
+            
+        merged_anndata = merge_anndatas_inner_join(adata_list)
     
     ## add majority cell type labels if not already present
     if config_dict_["cell_type_key"] not in list(merged_anndata.obs.keys()):
@@ -305,11 +304,11 @@ if __name__ == '__main__':
     if config_dict_["cell_types"] is not None:
         print("cell types to regress:")
         cell_types = config_dict_["cell_types"]
-        print(cell_types)
+        print((' ').join(cell_types))
     else:
         print("cell types to regress:")
         cell_types = np.unique(merged_anndata.obs[config_dict_["cell_type_key"]])
-        print(cell_types)
+        print((' ').join(cell_types))
         
     for ctype in cell_types:
         
@@ -324,8 +323,8 @@ if __name__ == '__main__':
         filtered_anndata = filter_anndata(merged_anndata_ctype, cell_type_key = config_dict_["cell_type_key"], fg_bc_high_var=config_dict_["fg_bc_high_var"], fc_bc_min_umi=config_dict_["fc_bc_min_umi"], fg_bc_min_pct_cells_by_counts=config_dict_["fg_bc_min_pct_cells_by_counts"])
 
         # filter spatial covariates 
-        if config_dict_["filter"] is not None:
-            threshold = config_dict_["filter"]   
+        if config_dict_["filter_feature"] is not None:
+            threshold = config_dict_["filter_feature"]   
           
             filtered_anndata.obsm[config_dict_["feature_key"]][filtered_anndata.obsm[config_dict_["feature_key"]] > threshold] = 0                                                           
 

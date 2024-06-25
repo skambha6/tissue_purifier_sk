@@ -1,10 +1,12 @@
 from typing import List, Any
 import anndata as Anndata
 import numpy as np
+from tissue_purifier.utils.dict_util import concatenate_list_of_dict
 
 # Set of simple helper functions to manipulate anndatas
 
-def merge_anndatas_inner_join(anndata_list):
+def merge_anndatas_inner_join(anndata_list: List[Anndata.AnnData],
+                              merge_uns: bool=False):
     """
     Merge a list of anndata objects using an inner join operation.
 
@@ -30,7 +32,40 @@ def merge_anndatas_inner_join(anndata_list):
         filtered_anndata_list.append(ad_filtered)
 
     # Concatenate the list of filtered anndata objects along axis 0 (rows)
-    merged_anndata = Anndata.concat(filtered_anndata_list, axis=0)
+    merged_anndata = Anndata.concat(filtered_anndata_list, axis=0, uns_merge='same')
+
+    # Combine .uns entries
+    if merge_uns and merged_anndata.uns is not None:
+        combined_uns = {}
+        list_of_patch_properties_dicts = []
+        list_of_image_properties_dicts = []
+        properties_dicts_exists = False
+        for i, adata in enumerate(anndata_list):
+            for key, value in adata.uns.items():
+                if key not in combined_uns:
+                    combined_uns[key] = value
+                else:
+                    pass
+                if key == 'sparse_image_state_dict':
+                    # try:
+                    patch_key = list(value['patch_properties_dict'].keys())[0]
+                    value['patch_properties_dict']['patch_sample_id'] = i * np.ones(value['patch_properties_dict'][patch_key].shape[0])
+
+                    list_of_patch_properties_dicts.append(value['patch_properties_dict'])
+                    list_of_image_properties_dicts.append(value['image_properties_dict'])
+                    properties_dicts_exists = True
+                    # except:
+                        # pass
+
+        # ignore image properties dict for now
+        if properties_dicts_exists:
+            combined_patch_properties_dict = concatenate_list_of_dict(list_of_patch_properties_dicts)
+            # combined_image_properties_dict = concatenate_list_of_dict(list_of_image_properties_dicts)
+            combined_uns['sparse_image_state_dict']['patch_properties_dict'] = combined_patch_properties_dict
+            # combined_uns['sparse_image_state_dict']['image_properties_dict'] = combined_image_properties_dict
+            combined_uns['sparse_image_state_dict']['image_properties_dict'] = {}
+
+        merged_anndata.uns = combined_uns
 
     return merged_anndata
 
