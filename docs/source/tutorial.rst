@@ -231,7 +231,7 @@ and clustering, which we demonstrate here:
 
 
 
-.. image:: tutorial_files/tutorial_20_1.png
+.. image:: ./tutorial_files/tutorial_20_1.png
 
 
 .. code:: ipython3
@@ -254,18 +254,10 @@ and clustering, which we demonstrate here:
     Running UMAP
 
 
-.. parsed-literal::
-
-    /home/skambha6/miniforge3/envs/tissue_purifier/lib/python3.11/site-packages/umap/umap_.py:1943: UserWarning: n_jobs value -1 overridden to 1 by setting random_state. Use no seed for parallelism.
-      warn(f"n_jobs value {self.n_jobs} overridden to 1 by setting random_state. Use no seed for parallelism.")
-
 
 .. parsed-literal::
 
     Computing clusters
-    number of elements ---> 35797
-    mean and median spacing 15.760547246990356, 15.570735462452099
-    The dense shape of the image is -> torch.Size([9, 1179, 1180])
 
 
 
@@ -784,52 +776,26 @@ Run GEX regression on enriched anndatas
                         )
     
     pre_res.res2d.sort_values(by='FDR q-val', ascending = True, inplace=True)
-    print(pre_res.res2d.head(15)[['Term', 'NES', 'NOM p-val', 'FDR q-val', 'Lead_genes']])
+    # print(pre_res.res2d.head(15)[['Term', 'NES', 'NOM p-val', 'FDR q-val', 'Lead_genes']])
+    
+    ax = gp.dotplot(pre_res.res2d,
+                 column="FDR q-val",
+                 title='Conditional Motif Enrichment - ES Cells',
+                 cmap=plt.cm.viridis,
+                 size=6, # adjust dot size
+                 figsize=(4,5), thresh=0.25, cutoff=0.25, show_ring=False)
 
 
 .. parsed-literal::
 
-    2024-06-25 15:00:08,598 [INFO] Parsing data files for GSEA.............................
-    2024-06-25 15:00:08,756 [INFO] 9435 gene_sets have been filtered out when max_size=1000 and min_size=10
-    2024-06-25 15:00:08,756 [INFO] 1125 gene_sets used for further statistical testing.....
-    2024-06-25 15:00:08,756 [INFO] Start to run GSEA...Might take a while..................
-    2024-06-25 15:00:28,941 [INFO] Congratulations. GSEApy runs successfully................
+    2024-06-25 19:26:19,934 [INFO] Parsing data files for GSEA.............................
+    2024-06-25 19:26:20,111 [INFO] 9435 gene_sets have been filtered out when max_size=1000 and min_size=10
+    2024-06-25 19:26:20,112 [INFO] 1125 gene_sets used for further statistical testing.....
+    2024-06-25 19:26:20,112 [INFO] Start to run GSEA...Might take a while..................
+    2024-06-25 19:26:40,262 [INFO] Congratulations. GSEApy runs successfully................
     
 
 
-.. parsed-literal::
 
-                                                     Term       NES NOM p-val  \
-    1               GOMF_CATALYTIC_ACTIVITY_ACTING_ON_RNA -1.833949       0.0   
-    4   GOBP_ENZYME_LINKED_RECEPTOR_PROTEIN_SIGNALING_... -1.785348  0.000122   
-    3                        GOBP_ORGANIC_ANION_TRANSPORT -1.794038   0.00029   
-    6    GOMF_CATALYTIC_ACTIVITY_ACTING_ON_A_NUCLEIC_ACID -1.747557  0.000389   
-    7         GOMF_ION_TRANSMEMBRANE_TRANSPORTER_ACTIVITY -1.734101  0.000993   
-    5                        GOBP_NCRNA_METABOLIC_PROCESS -1.750621  0.000504   
-    8                                GOBP_ANION_TRANSPORT -1.705855  0.002337   
-    16  GOBP_TRANSMEMBRANE_RECEPTOR_PROTEIN_TYROSINE_K... -1.656549  0.003815   
-    9               GOBP_POSITIVE_REGULATION_OF_SECRETION -1.694975  0.003151   
-    15  GOBP_TRANSMEMBRANE_RECEPTOR_PROTEIN_SERINE_THR... -1.657107  0.005192   
-    17                          GOBP_VESICLE_LOCALIZATION -1.646421  0.007852   
-    14                      GOMF_ACYLTRANSFERASE_ACTIVITY -1.659586   0.00529   
-    11         GOBP_DIVALENT_INORGANIC_CATION_HOMEOSTASIS -1.673522  0.004052   
-    13  GOBP_CELLULAR_DIVALENT_INORGANIC_CATION_HOMEOS... -1.660345  0.004896   
-    12                       GOMF_CATION_CHANNEL_ACTIVITY -1.664423  0.004744   
-    
-       FDR q-val                                         Lead_genes  
-    1   0.116182             Lars2;Piwil1;Alkbh3;Jmjd6;Dis3l;Polr2i  
-    4   0.119834  Nup62;Sort1;Psen1;Abl1;Iqgap1;Pdap1;Hgs;Suds3;...  
-    3   0.149736                   Grin2b;Slc2a3;Psen1;Slc16a7;Cptp  
-    6   0.158478             Lars2;Piwil1;Alkbh3;Jmjd6;Dis3l;Polr2i  
-    7   0.171249  Rasa3;Grin2b;Slc2a3;Psen1;Sec61a1;Slc16a7;Slc9...  
-    5   0.186542  Lars2;Piwil1;Dis3l;Atoh8;Tdrd6;Riok3;Ncbp1;Rps...  
-    8   0.242946                   Grin2b;Slc2a3;Psen1;Slc16a7;Cptp  
-    16  0.251873  Nup62;Sort1;Psen1;Abl1;Iqgap1;Pdap1;Hgs;Rnf126...  
-    9   0.255161  Grin2b;Clasp1;Vps4a;Hgs;Osbp;Pex5l;Lamp1;Camk2...  
-    15  0.267467              Abl1;Suds3;Atoh8;Sub1;Brms1;Ing1;Comp  
-    17   0.27544                       Clasp1;Psen1;Vps4a;Hgs;Ap3b1  
-    14  0.277287               Nat9;Lpcat3;Satl1;Abhd4;Zdhhc25;Kat8  
-    11  0.289622       Grin2b;Grina;Psen1;Abl1;Ap3b1;Camk2n1;Fkbp1a  
-    13  0.296961                      Grin2b;Grina;Psen1;Abl1;Ap3b1  
-    12  0.303393             Rasa3;Grin2b;Psen1;Sec61a1;Pex5l;Atp5o  
+.. image:: tutorial_files/tutorial_38_1.png
 

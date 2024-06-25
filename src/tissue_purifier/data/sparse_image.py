@@ -1064,6 +1064,7 @@ class SparseImage:
         Each (valid) patch is analyzed by the (pretrained) model.
         The features are stored in the patch_properties_dict under the :attr:`feature_name`.
         The validity of patches (boolean) is stored in the patch_properties_dict under the :attr:`feature_name_valid`.
+
         Args:
             feature_name: the key under which the results will be stored.
             datamodule: Datamodule used for training the model.
