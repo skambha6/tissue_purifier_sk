@@ -81,6 +81,12 @@ and clustering, which we demonstrate here:
     from tissue_purifier.utils.anndata_util import merge_anndatas_inner_join
     from tissue_purifier.plots.plot_misc import scatter
 
+
+.. parsed-literal::
+
+    [neptune] [warning] NeptuneDeprecationWarning: You're importing the Neptune client library via the deprecated `neptune.new` module, which will be removed in a future release. Import directly from `neptune` instead.
+
+
 .. code:: ipython3
 
     ## set seeds
@@ -159,8 +165,8 @@ and clustering, which we demonstrate here:
 
 .. parsed-literal::
 
-    /home/skambha6/chenlab/tissue_purifier/tissue_purifier_sk/src/tissue_purifier/utils/embedding_util.py:37: RuntimeWarning: invalid value encountered in divide
-      elif dist_type == 'cosine':
+    /home/skambha6/chenlab/tissue_purifier/tissue_purifier_sk/src/tissue_purifier/utils/embedding_util.py:40: RuntimeWarning: invalid value encountered in divide
+      sim_n = np.sum(adata_ref.obsm[rep_key] * query_z[None, :], -1) / (np.linalg.norm(adata_ref.obsm[rep_key], axis=-1) * np.linalg.norm(query_z))
 
 
 .. code:: ipython3
@@ -232,15 +238,83 @@ and clustering, which we demonstrate here:
 
     ## Perform spatial clustering on the learned TissueMosaic representations
     
-    ## note: this step can take a while to run depending on dataset size and n_neighbors
-    # adata_clustered = cluster(adata=adata_merged,
-    #                             key='dino',
-    #                             n_neighbors=1000, ## increasing n_neighbors gives more stable representations at increased computational cost
-    #                             leiden_res=[0.05, 0.1, 0.2, 0.3])
+    ## Cluster the same adata sample we performed motif query on
+    adata_clustered = cluster(adata=adata_query,
+                                key='dino',
+                                n_neighbors=100,
+                                leiden_res=[0.1, 0.2, 0.3])
     
-    ## use the coarser patch representations and sparse image functionality for computational efficiency
+    ## note that adata now has clustering annotations written in .obsm
+    adata_clustered
+
+
+
+.. parsed-literal::
+
+    Running UMAP
+
+
+.. parsed-literal::
+
+    /home/skambha6/miniforge3/envs/tissue_purifier/lib/python3.11/site-packages/umap/umap_.py:1943: UserWarning: n_jobs value -1 overridden to 1 by setting random_state. Use no seed for parallelism.
+      warn(f"n_jobs value {self.n_jobs} overridden to 1 by setting random_state. Use no seed for parallelism.")
+
+
+.. parsed-literal::
+
+    Computing clusters
+    number of elements ---> 35797
+    mean and median spacing 15.760547246990356, 15.570735462452099
+    The dense shape of the image is -> torch.Size([9, 1179, 1180])
+
+
+
+
+.. parsed-literal::
+
+    AnnData object with n_obs × n_vars = 35797 × 23706
+        obs: 'x', 'y', 'UMI', 'cell_type', 'dino_spot_features_valid', 'train_test_fold_1', 'train_test_fold_2', 'train_test_fold_3', 'train_test_fold_4', 'sample_id', 'classify_condition', 'sim', 'leiden_feature_dino_res_0.1_one_hot', 'leiden_feature_dino_res_0.2_one_hot'
+        uns: 'status'
+        obsm: 'cell_type_proportions', 'dino', 'dino_spot_features', 'ncv_k10', 'ncv_k100', 'ncv_k25', 'leiden_feature_dino_res_0.3_one_hot'
+
+
+
+.. code:: ipython3
+
+    ## Plot clustering results
     
-    ## To be implemented
+    # Create a figure
+    fig = plt.figure(figsize=(15,15))
+    gs = gridspec.GridSpec(1, 2, hspace=0.0)
+    
+    ## plot cluster 1
+    ax1 = fig.add_subplot(gs[0, 0])
+    cluster_key = 'leiden_feature_dino_res_0.3_one_hot'
+    
+    adata_cluster_1 = adata_clustered[adata_clustered.obsm[cluster_key][:,0] <= 0.999]
+    
+    scatter(adata_cluster_1, 'cell_type', x_key='y', y_key='x', mode='categorical', cdict=cdict, ticks_off=True, show_legend=False, fig=fig, ax=ax1, alpha=0.7, rasterized=True)
+    ax1.set_title('Cluster 1', fontsize=50)
+    
+    ## plot cluster 2
+    ax2 = fig.add_subplot(gs[0, 1])
+    
+    adata_cluster_2 = adata_clustered[adata_clustered.obsm[cluster_key][:,0] > 0.999]
+    
+    scatter(adata_cluster_2, 'cell_type', x_key='y', y_key='x', mode='categorical', cdict=cdict, ticks_off=True, show_legend=False, fig=fig, ax=ax2, alpha=0.7, rasterized=True)
+    ax2.set_title('Cluster 2', fontsize=50)
+
+
+
+
+.. parsed-literal::
+
+    Text(0.5, 1.0, 'Cluster 2')
+
+
+
+
+.. image:: tutorial_files/tutorial_22_1.png
 
 
 Gene Regression
@@ -324,7 +398,7 @@ We can investigate the results
 
 
 
-.. image:: tutorial_files/tutorial_28_1.png
+.. image:: tutorial_files/tutorial_29_1.png
 
 
 .. code:: ipython3
@@ -551,7 +625,7 @@ We can investigate the results
 
 
 
-.. image:: tutorial_files/tutorial_30_0.png
+.. image:: tutorial_files/tutorial_31_0.png
 
 
 Conditional Motif Enrichment
@@ -691,7 +765,7 @@ Run GEX regression on enriched anndatas
 
 
 
-.. image:: tutorial_files/tutorial_36_2.png
+.. image:: tutorial_files/tutorial_37_2.png
 
 
 .. code:: ipython3
