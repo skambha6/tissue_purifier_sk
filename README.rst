@@ -162,7 +162,7 @@ by Chen et al. <https://pubmed.ncbi.nlm.nih.gov/34731600/>`_) and untar it in th
     mkdir -p ./testis_anndata
     tar -xzf slideseq_testis_anndata_h5ad.tar.gz -C /testis_anndata.
 
-Next, navigate to the "tissue_purifier/run" directory and train the model (this will take about 6 hrs on a Nvidia p100):
+Next, navigate to the "tissue_purifier/run" directory and train the model (this will take about 3 hours with a single Nvidia RTX 4090 for 500 epochs):
 
 .. code-block::
 
