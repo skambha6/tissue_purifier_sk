@@ -199,7 +199,7 @@ Next extract the features (this will take only few minutes to run):
         --ncv_k 10 25 100
         --suffix featurized
 
-Finally, evaluate the features based on their ability to predict the gene expression profile.
+Finally, evaluate the features based on their ability to predict the gene expression profile (this will take ~45 minutes to run depending on how many genes you choose to regress).
 
 .. code-block::
 
