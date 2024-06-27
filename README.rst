@@ -128,12 +128,14 @@ Finally install *Tissue Mosaic* and its dependencies:
     pip install -r requirements.txt
     pip install .
 
+Installation should complete in <10 minutes. 
+
 Versions the software has been tested on
 ------------
 Environment 1:
 
 * System: Linux Ubuntu 22.04.4 lTS
-* Python = 3.11.0, CUDA = 12.2
+* Python = 3.11.0, CUDA = 12.1
 * Dependencies: anndata=0.10.6, leidenalg=0.9.1, lightly-1.5.1, lightning_bolts=0.7.0, matplotlib=3.8.3, neptune=1.9.1, numpy=1.26.4, pandas=1.5.3, python_igraph=0.10.4, pytorch-lightning=1.7.7, scanpy=1.9.8, scikit_learn=1.4.1, scipy=1.12.0, seaborn=0.13.2, torch=2.2.1, torchvision=0.17.1, umap_learn=0.5.5
 
 Docker Image
@@ -173,7 +175,7 @@ by Chen et al. <https://pubmed.ncbi.nlm.nih.gov/34731600/>`_) and untar it in th
     mkdir -p ./testis_anndata
     tar -xzf slideseq_testis_anndata_h5ad.tar.gz -C /testis_anndata.
 
-Next, navigate to the "tissue_purifier/run" directory and train the model (this will take about 3 hours with a single Nvidia RTX 4090 for 500 epochs):
+Next, navigate to the "tissue_purifier/run" directory and train the model (this will take about 3 hours for 500 epochs with a single Nvidia RTX 4090 GPU):
 
 .. code-block::
 
@@ -185,7 +187,7 @@ Next, navigate to the "tissue_purifier/run" directory and train the model (this 
     # python main_1_train_ssl.py --config config_simclr_ssl.yaml --data_folder testis_anndata --ckpt_out simclr_testis.pt
     # python main_1_train_ssl.py --config config_vae_ssl.yaml --data_folder testis_anndata --ckpt_out vae_testis.pt
 
-Next extract the features (this will take only few minutes to run):
+Next extract the features (this will take 5-10 minutes to run):
 
 .. code-block::
 
