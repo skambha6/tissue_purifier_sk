@@ -33,7 +33,7 @@ Spatially resolved transcriptomic technologies (such as
 `STARMap <https://pubmed.ncbi.nlm.nih.gov/29930089/>`_
 and others) allow measuring gene expression with spatial resolution. 
 Deconvolution methods and/or analysis of marker-genes, can be used to assign
-a discrete cell-type (such as Macrophage, B-Cells, ...) to each cell. 
+a discrete cell-type (such as Macrophage, B-Cells, ...) or cell-type proportions to each spot. 
 
 This type of data can be nicely organized into anndata objects, which are data-structure 
 specifically designed for transcriptomic data. 
