@@ -149,6 +149,9 @@ Older versions are available at the same location, for example as
 
 How to run
 ----------
+
+Please refer to the documentation (https://tissue-purifier.readthedocs.io/) for a quick start tutorial. Running this tutorial with a trained model takes approximately 1.5 hours with a 4 core system. 
+
 There are 3 ways to run the code:
 
 You can run the notebooks sequentially.
