@@ -33,7 +33,7 @@ Spatially resolved transcriptomic technologies (such as
 `STARMap <https://pubmed.ncbi.nlm.nih.gov/29930089/>`_
 and others) allow measuring gene expression with spatial resolution. 
 Deconvolution methods and/or analysis of marker-genes, can be used to assign
-a discrete cell-type (such as Macrophage, B-Cells, ...) to each cell. 
+a discrete cell-type (such as Macrophage, B-Cells, ...) or cell-type proportions to each spot. 
 
 This type of data can be nicely organized into anndata objects, which are data-structure 
 specifically designed for transcriptomic data. 
@@ -110,13 +110,14 @@ However, image-based approaches offer three remarkable advantages:
 
 Installation
 ------------
-First, you need Python 3.9 and Pytorch (with CUDA support).
+First, you need Python >= 3.11.0 and Pytorch (with CUDA support).
 If you run the following command from your terminal it should report True:
 
 .. code-block::
 
     python -c 'import torch; print(torch.cuda.is_available())'
 
+If not, install Pytorch: https://pytorch.org/get-started/locally/
 
 Finally install *Tissue Mosaic* and its dependencies:
 
@@ -127,6 +128,15 @@ Finally install *Tissue Mosaic* and its dependencies:
     pip install -r requirements.txt
     pip install .
 
+Installation should complete in <10 minutes. 
+
+Versions the software has been tested on
+------------
+Environment 1:
+
+* System: Linux Ubuntu 22.04.4 lTS
+* Python = 3.11.0, CUDA = 12.1
+* Dependencies: anndata=0.10.6, leidenalg=0.9.1, lightly-1.5.1, lightning_bolts=0.7.0, matplotlib=3.8.3, neptune=1.9.1, numpy=1.26.4, pandas=1.5.3, python_igraph=0.10.4, pytorch-lightning=1.7.7, scanpy=1.9.8, scikit_learn=1.4.1, scipy=1.12.0, seaborn=0.13.2, torch=2.2.1, torchvision=0.17.1, umap_learn=0.5.5
 
 Docker Image
 ------------
@@ -141,6 +151,9 @@ Older versions are available at the same location, for example as
 
 How to run
 ----------
+
+Please refer to the documentation (https://tissue-purifier.readthedocs.io/) for a quick start tutorial. Running this tutorial with a trained model takes approximately 1.5 hours with a 4 core system. 
+
 There are 3 ways to run the code:
 
 You can run the notebooks sequentially.
@@ -162,7 +175,7 @@ by Chen et al. <https://pubmed.ncbi.nlm.nih.gov/34731600/>`_) and untar it in th
     mkdir -p ./testis_anndata
     tar -xzf slideseq_testis_anndata_h5ad.tar.gz -C /testis_anndata.
 
-Next, navigate to the "tissue_purifier/run" directory and train the model (this will take about 6 hrs on a Nvidia p100):
+Next, navigate to the "tissue_purifier/run" directory and train the model (this will take about 3 hours for 500 epochs with a single Nvidia RTX 4090 GPU):
 
 .. code-block::
 
@@ -174,7 +187,7 @@ Next, navigate to the "tissue_purifier/run" directory and train the model (this 
     # python main_1_train_ssl.py --config config_simclr_ssl.yaml --data_folder testis_anndata --ckpt_out simclr_testis.pt
     # python main_1_train_ssl.py --config config_vae_ssl.yaml --data_folder testis_anndata --ckpt_out vae_testis.pt
 
-Next extract the features (this will take only few minutes to run):
+Next extract the features (this will take 5-10 minutes to run):
 
 .. code-block::
 
@@ -188,7 +201,7 @@ Next extract the features (this will take only few minutes to run):
         --ncv_k 10 25 100
         --suffix featurized
 
-Finally, evaluate the features based on their ability to predict the gene expression profile.
+Finally, evaluate the features based on their ability to predict the gene expression profile (this will take ~45 minutes to run for 1500 genes).
 
 .. code-block::
 
@@ -205,7 +218,7 @@ Finally, evaluate the features based on their ability to predict the gene expres
         --out_prefix dino_ctype
         --feature_key dino_spot_features
         --alpha_regularization_strength 0.01
-        --filter 2.0
+        --filter_feature 2.0
         --fc_bc_min_umi=500
         --fg_bc_min_pct_cells_by_counts 10
         --cell_types ES
