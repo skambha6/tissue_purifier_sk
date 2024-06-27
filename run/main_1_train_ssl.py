@@ -207,7 +207,7 @@ def initialization(
     
     ## TODO: debug validation with multi-gpu training
     pl_trainer = Trainer(
-        weights_save_path="saved_ckpt",
+        default_root_dir="saved_ckpt",
         profiler=profiler,
         # num_nodes=num_processes,  # number of different machines, FOr us this is 1
         num_nodes=1, ##TODO: set this automatically to machine specs
