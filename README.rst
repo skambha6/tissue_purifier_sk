@@ -205,7 +205,7 @@ Finally, evaluate the features based on their ability to predict the gene expres
         --out_prefix dino_ctype
         --feature_key dino_spot_features
         --alpha_regularization_strength 0.01
-        --filter 2.0
+        --filter_feature 2.0
         --fc_bc_min_umi=500
         --fg_bc_min_pct_cells_by_counts 10
         --cell_types ES
