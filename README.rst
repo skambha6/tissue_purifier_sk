@@ -110,13 +110,14 @@ However, image-based approaches offer three remarkable advantages:
 
 Installation
 ------------
-First, you need Python 3.9 and Pytorch (with CUDA support).
+First, you need Python >= 3.11.0 and Pytorch (with CUDA support).
 If you run the following command from your terminal it should report True:
 
 .. code-block::
 
     python -c 'import torch; print(torch.cuda.is_available())'
 
+If not, install Pytorch: https://pytorch.org/get-started/locally/
 
 Finally install *Tissue Mosaic* and its dependencies:
 
