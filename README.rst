@@ -128,6 +128,12 @@ Finally install *Tissue Mosaic* and its dependencies:
     pip install -r requirements.txt
     pip install .
 
+Versions the software has been tested on
+------------
+Environment 1:
+* System - Linux Ubuntu 22.04.4 lTS
+* Python = 3.11.0, CUDA = 12.2
+* Dependencies - anndata=0.10.6, leidenalg=0.9.1, lightly-1.5.1, lightning_bolts=0.7.0, matplotlib=3.8.3, neptune=1.9.1, numpy=1.26.4, pandas=1.5.3, protobuf=4.24.4, python_igraph=0.10.4, pytorch-lightning=1.7.7, PyYAML=6.0, scanpy=1.9.8, scikit_learn=1.4.1, scipy=1.12.0, seaborn=0.13.2, torch=2.2.1, torchvision=0.17.1, umap_learn=0.5.5
 
 Docker Image
 ------------
