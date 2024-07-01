@@ -43,10 +43,10 @@ We recap the dimension of the variable involved in the full model (for `K` diffe
 4. :math:`\beta_{klg}` are the regression coefficients of shape :math:`K \times L \times G` (i.e. cell-types by covariates by genes)
 
 Typical values are :math:`N \sim 10^3, G \sim 10^3, K\sim 10, L\sim 50`.
-The goal of the inference is to determine :math:`\beta^0 and \beta`.
+The goal of the inference is to determine :math:`\beta^0` and :math:`\beta`.
 We enforce a penalty (either L1 or a L2) on the regression coefficients :math:`\beta` to encourage them to be small.
 There is no prior on :math:`\beta^0`.
-Overall the model has one hyper-parameters (the strength of the regularization on :math:`\beta`)
+Overall the model has one hyper-parameter (the strength of the regularization on :math:`\beta`)
 which is determined by cross-validation.
 
 See `notebook3 <https://github.com/broadinstitute/tissue_purifier/blob/main/notebooks/notebook3.ipynb>`_ for an example.
