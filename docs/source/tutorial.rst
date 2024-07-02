@@ -5,8 +5,7 @@ This tutorial guides you through running the main modules of
 TissueMosaic for training a model, featurizing the anndata, regressing
 gene expression, and performing conditional motif enrichment.
 
-First download the example testis anndata files and config training file
-from…TODO
+First download the example testis anndata files: https://drive.google.com/file/d/1buvC7H8-EsyLrniMCre7Y7PZLu8zw8h2/view?usp=sharing.
 
 Train model
 ^^^^^^^^^^^
